@@ -48,3 +48,19 @@ This document captures every architectural decision, context, rationale, and rej
 - **Rejected Alternatives**:
   - *Partitioning by ingestion time*: Event time (`event_timestamp`) reflects actual transponder broadcast time; ingestion time creates time skew during backfills or delayed API responses.
   - *Single combined dataset*: Combining raw and curated layers impedes IAM role separation and table lifecycle management.
+
+---
+
+## ADR 003: Apache Beam Windowing, Sessionization, and Late Data Strategy
+- **Status**: Accepted (Phase 3)
+- **Context**: Flight positions are discrete, irregular pings. Identifying distinct flight legs (gate-to-gate or takeoff-to-touchdown) requires detecting silence periods when the transponder is off or out of coverage, while handling network delays and late arrivals.
+- **Decision**:
+  - Implement gap-based session windowing (`window.Sessions(gap_size=15 minutes)`) keyed by `icao24` to delineate flight legs.
+  - Configure allowed lateness (10 minutes) with accumulation mode `DISCARDING` and route late events to a dedicated BigQuery sink (`raw_flights.late_pings`) via a tagged side output.
+  - Compute deterministic surrogate keys for each flight leg (`MD5(icao24 || start_iso)`), ensuring idempotency if sessions are re-evaluated.
+  - Package pipeline as a Google Cloud Dataflow Flex Template with maximum worker cap hardcoded to 2 (`max_num_workers = 2`) for personal project budget safety.
+- **Consequences**:
+  - Automatically splits turnaround operations at airport gates without requiring manual flight schedule inputs.
+- **Rejected Alternatives**:
+  - *Fixed 1-hour tumbling windows*: Arbitrarily slices flight legs across window boundaries, corrupting origin, destination, and duration statistics.
+  - *Dropping late data silently*: Prevents auditability of streaming lag and introduces telemetry blind spots; rejected in favor of side-output landing into `raw_flights.late_pings`.

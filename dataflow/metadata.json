@@ -1,0 +1,60 @@
+{
+  "name": "Airlytics Real-Time Flight Streaming Pipeline",
+  "description": "Consumes raw OpenSky flight pings from Pub/Sub, performs sessionization into flight legs, captures late events, and streams into BigQuery.",
+  "parameters": [
+    {
+      "name": "input_subscription",
+      "label": "Pub/Sub Input Subscription",
+      "helpText": "Pub/Sub subscription containing normalized flight pings",
+      "isOptional": true,
+      "regexes": [
+        "^projects\\/[^\\n\\r\\t]+\\/subscriptions\\/[^\\n\\r\\t]+$"
+      ]
+    },
+    {
+      "name": "input_topic",
+      "label": "Pub/Sub Input Topic",
+      "helpText": "Pub/Sub topic containing normalized flight pings (if subscription not provided)",
+      "isOptional": true,
+      "regexes": [
+        "^projects\\/[^\\n\\r\\t]+\\/topics\\/[^\\n\\r\\t]+$"
+      ]
+    },
+    {
+      "name": "raw_table",
+      "label": "Raw Flight Pings BigQuery Table",
+      "helpText": "Target table in format project:raw_flights.raw_pings",
+      "isOptional": false
+    },
+    {
+      "name": "late_table",
+      "label": "Late Pings BigQuery Table",
+      "helpText": "Target table for late events in format project:raw_flights.late_pings",
+      "isOptional": false
+    },
+    {
+      "name": "deadletter_table",
+      "label": "Deadletter BigQuery Table",
+      "helpText": "Target table for malformed records in format project:raw_flights.deadletter_pings",
+      "isOptional": false
+    },
+    {
+      "name": "flight_legs_table",
+      "label": "Flight Legs BigQuery Table",
+      "helpText": "Target table for sessionized flight legs in format project:curated_flights.fact_flight_leg",
+      "isOptional": false
+    },
+    {
+      "name": "session_gap_minutes",
+      "label": "Session Window Gap Duration (Minutes)",
+      "helpText": "Silence gap duration in minutes to split flight sessions (default: 15.0)",
+      "isOptional": true
+    },
+    {
+      "name": "allowed_lateness_minutes",
+      "label": "Allowed Lateness Duration (Minutes)",
+      "helpText": "Allowed lateness in minutes for late data side output (default: 10.0)",
+      "isOptional": true
+    }
+  ]
+}
