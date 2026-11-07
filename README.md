@@ -205,3 +205,4 @@ Every design choice, trade-off, and rejected alternative is documented in [DECIS
 - **ADR 004**: Dataform Incremental ELT, GIS Geofencing, and Quality Assertions
 - **ADR 005**: Multi-Environment Infrastructure as Code & Cost Guardrails
 - **ADR 006**: Zero-Key CI/CD via Workload Identity Federation (WIF) and Approval Gates
+

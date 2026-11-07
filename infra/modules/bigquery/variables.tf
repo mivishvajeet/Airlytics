@@ -25,3 +25,4 @@ variable "curated_retention_days" {
   default     = 365
   description = "Partition expiration in days for curated fact tables"
 }
+

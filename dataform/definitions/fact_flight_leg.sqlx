@@ -128,3 +128,4 @@ SELECT
   CURRENT_TIMESTAMP() AS created_at
 FROM
   resolved_airports
+

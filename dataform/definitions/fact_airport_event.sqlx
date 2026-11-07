@@ -86,3 +86,4 @@ FROM
   spatial_matches
 WHERE
   dedupe_rank = 1
+

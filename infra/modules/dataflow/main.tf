@@ -78,3 +78,4 @@ resource "google_storage_bucket_iam_member" "reference_bucket_viewer" {
   role   = "roles/storage.objectViewer"
   member = "serviceAccount:${google_service_account.dataflow_sa.email}"
 }
+

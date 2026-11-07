@@ -25,3 +25,4 @@ variable "ack_deadline_seconds" {
   default     = 60
   description = "Pub/Sub subscription acknowledgment deadline"
 }
+

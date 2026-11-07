@@ -22,3 +22,4 @@ output "dataflow_bucket_name" {
   value       = module.dataflow.dataflow_bucket_name
   description = "GCS bucket for Dataflow temp/staging"
 }
+

@@ -140,3 +140,4 @@ class ParseAndValidatePingFn(beam.DoFn if BEAM_AVAILABLE else object):  # type: 
                 yield pvalue.TaggedOutput(DEADLETTER_TAG, dlq_record)
             else:
                 yield ("deadletter", dlq_record)
+

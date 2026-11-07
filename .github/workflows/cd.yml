@@ -161,3 +161,4 @@ jobs:
               late_table="${{ env.GCP_PROJECT_ID }}:raw_flights_prod.late_pings",\
               deadletter_table="${{ env.GCP_PROJECT_ID }}:raw_flights_prod.deadletter_pings",\
               flight_legs_table="${{ env.GCP_PROJECT_ID }}:curated_flights_prod.fact_flight_leg"
+

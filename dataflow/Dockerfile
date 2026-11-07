@@ -16,3 +16,4 @@ RUN pip install --no-cache-dir --upgrade pip \
 ENV PYTHONPATH="${WORKDIR}"
 
 ENTRYPOINT ["/opt/google/dataflow/python_template_launcher"]
+

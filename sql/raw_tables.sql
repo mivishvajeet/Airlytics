@@ -79,3 +79,4 @@ OPTIONS (
   partition_expiration_days = 30.0,
   description = "Malformed payloads or deserialization errors routed away from the main streaming pipeline"
 );
+

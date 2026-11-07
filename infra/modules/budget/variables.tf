@@ -19,3 +19,4 @@ variable "monthly_budget_amount" {
   default     = 25
   description = "Monthly budget limit in USD"
 }
+

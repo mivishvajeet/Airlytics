@@ -33,3 +33,4 @@ WHERE
   ${when(incremental(), `AND start_timestamp > (SELECT COALESCE(MAX(window_hour), TIMESTAMP('2020-01-01')) FROM ${self()})`)}
 GROUP BY
   1, 2, 3, 6
+

@@ -120,3 +120,4 @@ resource "google_bigquery_table" "deadletter_pings" {
     { name = "source_topic", type = "STRING", mode = "NULLABLE" }
   ])
 }
+

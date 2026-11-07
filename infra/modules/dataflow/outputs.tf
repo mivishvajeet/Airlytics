@@ -12,3 +12,4 @@ output "reference_bucket_name" {
   value       = google_storage_bucket.reference_bucket.name
   description = "GCS bucket for airport reference data"
 }
+

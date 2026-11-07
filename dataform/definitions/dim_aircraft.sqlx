@@ -36,3 +36,4 @@ SELECT
 FROM
   new_observations n
 ${when(incremental(), `FULL OUTER JOIN ${self()} e ON n.icao24 = e.icao24`)}
+

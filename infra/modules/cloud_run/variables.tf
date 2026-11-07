@@ -41,3 +41,4 @@ variable "job_run_duration_seconds" {
   default     = 840 # 14 minutes per run, cleanly handing off before next cron trigger
   description = "Duration in seconds each Cloud Run job execution runs before terminating"
 }
+

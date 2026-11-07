@@ -13,3 +13,4 @@ variable "region" {
   default     = "europe-west1"
   description = "Dataflow deployment region"
 }
+

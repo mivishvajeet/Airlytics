@@ -42,3 +42,4 @@ resource "google_monitoring_alert_policy" "freshness_alert" {
     environment = var.environment
   }
 }
+

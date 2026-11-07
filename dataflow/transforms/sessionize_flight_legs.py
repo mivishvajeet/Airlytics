@@ -174,3 +174,4 @@ class SessionizeFlightLegsDoFn(beam.DoFn if BEAM_AVAILABLE else object):  # type
         curated = accumulator.to_curated_record(min_pings=self.min_pings)
         if curated is not None:
             yield curated
+

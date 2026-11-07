@@ -120,3 +120,4 @@ OPTIONS (
   partition_expiration_days = 365.0,
   description = "Hourly aggregate statistics for airline routes"
 );
+

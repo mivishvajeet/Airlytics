@@ -17,3 +17,4 @@ output "deadletter_topic_id" {
   value       = google_pubsub_topic.deadletter.id
   description = "Full resource ID of the dead-letter topic"
 }
+

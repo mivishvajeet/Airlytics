@@ -45,3 +45,4 @@ variable "ingestion_image" {
   default     = "europe-west1-docker.pkg.dev/airlytics-prod-123456/airlytics/ingest:latest"
   description = "Container image for OpenSky poller"
 }
+

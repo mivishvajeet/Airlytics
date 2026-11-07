@@ -22,3 +22,4 @@ output "deadletter_table_id" {
   value       = "${var.project_id}:${google_bigquery_dataset.raw_flights.dataset_id}.${google_bigquery_table.deadletter_pings.table_id}"
   description = "Fully qualified table ID of deadletter_pings"
 }
+

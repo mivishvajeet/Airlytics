@@ -16,3 +16,4 @@ declare({
   name: "raw_airports",
   description: "Staging table loaded from OurAirports CSV dataset in GCS"
 });
+

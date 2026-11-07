@@ -36,3 +36,4 @@ resource "google_billing_budget" "budget" {
     spend_basis       = "FORECASTED_SPEND"
   }
 }
+

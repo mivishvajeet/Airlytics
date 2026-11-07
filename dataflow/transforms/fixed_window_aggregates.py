@@ -93,3 +93,4 @@ class Airspace5mAggregateDoFn(beam.DoFn if BEAM_AVAILABLE else object):  # type:
             acc.add_ping(p)
 
         yield acc.to_dict()
+

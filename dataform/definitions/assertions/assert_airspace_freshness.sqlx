@@ -23,3 +23,4 @@ FROM
 WHERE
   -- Returns a violation row if ingestion delay exceeds 10 minutes during active operating windows
   TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), max_ingest_ts, MINUTE) > 10
+

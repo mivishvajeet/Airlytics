@@ -74,3 +74,4 @@ FLIGHT_LEGS_SCHEMA: Dict[str, Any] = {
         {"name": "created_at", "type": "TIMESTAMP", "mode": "REQUIRED"},
     ]
 }
+

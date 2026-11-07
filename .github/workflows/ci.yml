@@ -97,3 +97,4 @@ jobs:
         run: |
           cd dataform
           dataform compile
+

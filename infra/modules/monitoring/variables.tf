@@ -18,3 +18,4 @@ variable "pubsub_topic_id" {
   type        = string
   description = "Pub/Sub topic ID to monitor for message ingestion"
 }
+

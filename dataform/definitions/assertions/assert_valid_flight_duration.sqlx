@@ -17,3 +17,4 @@ FROM
 WHERE
   duration_minutes <= 0
   OR duration_minutes > 1440.0
+
