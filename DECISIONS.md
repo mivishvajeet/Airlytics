@@ -103,3 +103,21 @@ This document captures every architectural decision, context, rationale, and rej
 - **Rejected Alternatives**:
   - *Terraform Workspaces in a single directory*: Confining dev and prod state to workspace flags often leads to accidental cross-environment applies; discrete directory structures (`infra/dev`, `infra/prod`) provide hard isolation.
   - *Manual GCS bucket and topic creation*: Violates the immutable infrastructure and CI/CD automation requirement.
+
+---
+
+## ADR 006: Zero-Key CI/CD via Workload Identity Federation (WIF) and Approval Gates
+- **Status**: Accepted (Phase 6)
+- **Context**: Automated deployments require GCP credentials with elevated permissions (Terraform, Dataflow, Cloud Run). Exporting service account JSON keys to GitHub Secrets poses severe security risks (key rotation burden, credential leakage).
+- **Decision**:
+  - Implement Workload Identity Federation (WIF) using short-lived OpenID Connect (OIDC) JWT tokens issued by GitHub Actions.
+  - Structure the CI pipeline on Pull Requests to execute flake8, pytest with synthetic Beam fixtures, `terraform fmt -check`, `terraform validate`, and Dataform DAG compilation.
+  - Structure the CD pipeline on merge to `main` with a 2-stage promotion:
+    - Automatically apply Terraform and deploy the Dataflow Flex Template to `dev`.
+    - Enforce a manual GitHub Environment approval gate for `production` before deploying to `prod`.
+  - Strictly prohibit service account JSON keys across the entire codebase and secret storage.
+- **Consequences**:
+  - Cloud credentials expire automatically within minutes; zero persistent keys exist to be leaked.
+- **Rejected Alternatives**:
+  - *Storing Service Account JSON in GitHub Secrets*: Static, unexpiring keys; strictly rejected.
+  - *Direct manual `terraform apply` or `gcloud run deploy` from local workstation*: Bypasses peer review, automated testing, and reproducibility audits.
