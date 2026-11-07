@@ -1,0 +1,201 @@
+"""OpenSky REST API client with exponential backoff and rate-limit resilience."""
+
+import base64
+from dataclasses import dataclass
+from datetime import datetime, timezone
+import json
+import logging
+import random
+import time
+from typing import Any, Dict, List, Optional, Tuple
+import urllib.error
+import urllib.parse
+import urllib.request
+
+try:
+    import requests
+    from requests.auth import HTTPBasicAuth
+    REQUESTS_AVAILABLE = True
+except ImportError:
+    requests = None  # type: ignore
+    HTTPBasicAuth = None  # type: ignore
+    REQUESTS_AVAILABLE = False
+
+from ingest.config import IngestionConfig
+from ingest.models import NormalizedFlightPing, parse_state_vector
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class PollResult:
+    """Outcome of a single polling iteration."""
+
+    response_time: int
+    total_states_received: int
+    valid_pings: List[NormalizedFlightPing]
+    deadletter_records: List[Dict[str, Any]]
+    api_latency_ms: float
+    status_code: int
+
+
+class OpenSkyPoller:
+    """Client for polling live ADS-B state vectors from the OpenSky Network REST API."""
+
+    def __init__(self, config: IngestionConfig, session: Optional[Any] = None):
+        self.config = config
+        self.session = session or (requests.Session() if REQUESTS_AVAILABLE else None)
+        self._consecutive_rate_limits = 0
+
+    def _build_params(self) -> Dict[str, Any]:
+        """Construct query parameters, including geographical bounding box if specified."""
+        params: Dict[str, Any] = {}
+        if self.config.has_bbox:
+            params["lamin"] = self.config.bbox_lamin
+            params["lomin"] = self.config.bbox_lomin
+            params["lamax"] = self.config.bbox_lamax
+            params["lomax"] = self.config.bbox_lomax
+        return params
+
+    def _execute_http_get(self, url: str, params: Dict[str, Any], headers: Dict[str, str]) -> Tuple[int, Dict[str, Any]]:
+        """Execute HTTP GET using requests session/mock if available, else urllib."""
+        if self.session is not None and hasattr(self.session, "get"):
+            auth = None
+            if self.config.is_authenticated:
+                if REQUESTS_AVAILABLE and HTTPBasicAuth:
+                    auth = HTTPBasicAuth(self.config.opensky_username, self.config.opensky_password)
+                else:
+                    auth = (self.config.opensky_username, self.config.opensky_password)
+            resp = self.session.get(
+                url,
+                params=params,
+                auth=auth,
+                headers=headers,
+                timeout=self.config.request_timeout_seconds,
+            )
+            data = resp.json() if resp.status_code == 200 else {}
+            return resp.status_code, data
+
+        # Fallback to urllib.request
+        query_string = urllib.parse.urlencode(params)
+        full_url = f"{url}?{query_string}" if query_string else url
+        req = urllib.request.Request(full_url, headers=headers, method="GET")
+
+        if self.config.is_authenticated and self.config.opensky_username:
+            user_pass = f"{self.config.opensky_username}:{self.config.opensky_password or ''}"
+            encoded_auth = base64.b64encode(user_pass.encode("utf-8")).decode("ascii")
+            req.add_header("Authorization", f"Basic {encoded_auth}")
+
+        try:
+            with urllib.request.urlopen(req, timeout=self.config.request_timeout_seconds) as resp:
+                body = resp.read().decode("utf-8")
+                return resp.status, json.loads(body)
+        except urllib.error.HTTPError as http_err:
+            return http_err.code, {}
+
+    def fetch_states(self) -> Tuple[int, Dict[str, Any], float]:
+        """
+        Execute an HTTP GET request to OpenSky with retry and backoff logic.
+
+        Returns:
+            Tuple of (status_code, json_payload, latency_ms)
+        """
+        params = self._build_params()
+        headers = {"User-Agent": "Airlytics-Data-Platform/1.0 (Personal/Portfolio Data Engineering Project)"}
+
+        for attempt in range(1, self.config.max_retries + 1):
+            t_start = time.perf_counter()
+            try:
+                status_code, payload = self._execute_http_get(
+                    self.config.opensky_url, params=params, headers=headers
+                )
+                latency_ms = (time.perf_counter() - t_start) * 1000.0
+
+                if status_code == 200:
+                    self._consecutive_rate_limits = 0
+                    return 200, payload, latency_ms
+
+                if status_code == 429:
+                    self._consecutive_rate_limits += 1
+                    sleep_time = (self.config.backoff_factor ** attempt) * 2.0 + random.uniform(0.5, 2.0)
+                    logger.warning(
+                        "OpenSky rate limit encountered (HTTP 429, attempt %d/%d). Cooling down for %.2fs...",
+                        attempt,
+                        self.config.max_retries,
+                        sleep_time,
+                    )
+                    time.sleep(sleep_time)
+                    continue
+
+                if 500 <= status_code < 600:
+                    sleep_time = (self.config.backoff_factor ** attempt) + random.uniform(0.1, 0.5)
+                    logger.warning(
+                        "OpenSky server error (HTTP %d, attempt %d/%d). Retrying in %.2fs...",
+                        status_code,
+                        attempt,
+                        self.config.max_retries,
+                        sleep_time,
+                    )
+                    time.sleep(sleep_time)
+                    continue
+
+                logger.error("Unexpected OpenSky HTTP error %d", status_code)
+                return status_code, {}, latency_ms
+
+            except Exception as err:  # pylint: disable=broad-except
+                latency_ms = (time.perf_counter() - t_start) * 1000.0
+                sleep_time = (self.config.backoff_factor ** attempt) + random.uniform(0.1, 0.5)
+                logger.warning(
+                    "Network error querying OpenSky (%s, attempt %d/%d). Retrying in %.2fs...",
+                    err,
+                    attempt,
+                    self.config.max_retries,
+                    sleep_time,
+                )
+                time.sleep(sleep_time)
+
+        logger.error("Exceeded maximum retries (%d) polling OpenSky API.", self.config.max_retries)
+        return 503, {}, 0.0
+
+    def poll_cycle(self) -> PollResult:
+        """
+        Perform a full poll iteration: fetch states and parse into normalized pings and dead-letter records.
+        """
+        status_code, payload, latency_ms = self.fetch_states()
+        now_dt = datetime.now(timezone.utc)
+
+        if status_code != 200 or not payload:
+            return PollResult(
+                response_time=int(now_dt.timestamp()),
+                total_states_received=0,
+                valid_pings=[],
+                deadletter_records=[{
+                    "reason": "http_fetch_failure",
+                    "status_code": status_code,
+                    "timestamp": now_dt.isoformat(),
+                }],
+                api_latency_ms=latency_ms,
+                status_code=status_code,
+            )
+
+        resp_time = payload.get("time", int(now_dt.timestamp()))
+        states = payload.get("states") or []
+
+        valid_pings: List[NormalizedFlightPing] = []
+        deadletter_records: List[Dict[str, Any]] = []
+
+        for vector in states:
+            ping, err = parse_state_vector(vector, response_time=resp_time, ingest_dt=now_dt)
+            if ping is not None:
+                valid_pings.append(ping)
+            elif err is not None:
+                deadletter_records.append(err)
+
+        return PollResult(
+            response_time=resp_time,
+            total_states_received=len(states),
+            valid_pings=valid_pings,
+            deadletter_records=deadletter_records,
+            api_latency_ms=latency_ms,
+            status_code=status_code,
+        )
