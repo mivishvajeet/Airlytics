@@ -1,0 +1,8 @@
+project_id            = "airlytics-prod-123456"
+environment           = "prod"
+region                = "europe-west1"
+bq_location           = "EU"
+billing_account_id    = "000000-000000-000000"
+monthly_budget_amount = 50
+alert_email           = "prod-alerts@example.com"
+ingestion_image       = "europe-west1-docker.pkg.dev/airlytics-prod-123456/airlytics/ingest:latest"

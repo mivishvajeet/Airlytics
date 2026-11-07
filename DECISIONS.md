@@ -83,3 +83,23 @@ This document captures every architectural decision, context, rationale, and rej
 - **Rejected Alternatives**:
   - *Dataflow-only spatial joins*: Geofencing 70,000 global airports in Apache Beam workers requires heavy memory footprints or external API calls; BigQuery GIS natively evaluates spatial indexes efficiently in SQL.
   - *Manual BigQuery scheduled queries*: Lacks version control, dependency DAG resolution, assertion testing, and CI/CD compiler validation provided by Dataform.
+
+---
+
+## ADR 005: Multi-Environment Infrastructure as Code & Cost Guardrails
+- **Status**: Accepted (Phase 5)
+- **Context**: Operating a streaming architecture with Cloud Run, Pub/Sub, Dataflow, and BigQuery requires strict infrastructure automation without hardcoded secrets or uncontrolled personal billing surprises.
+- **Decision**:
+  - Adopt a modular Terraform architecture (`infra/modules/`) separated into isolated `dev` and `prod` environment workspaces.
+  - Parameterize all GCP project IDs using default dummy IDs (`airlytics-dev-123456`, `airlytics-prod-123456`) to ensure portability and zero secret leakage.
+  - Enforce personal cost budget constraints:
+    - Set GCS bucket lifecycle policies to automatically purge Dataflow staging/temp files after 7 days.
+    - Declare a Google Cloud Billing Budget resource with spending alerts triggered at 50%, 80%, and 100% of threshold ($25 dev / $50 prod).
+    - Cap Dataflow max workers to 2 (`max_num_workers = 2`).
+    - Schedule Cloud Run ingestion jobs via Cloud Scheduler during active operating windows.
+  - Implement a 10-minute metric absence alert policy in Cloud Monitoring (`duration = "600s"`) to satisfy the system freshness requirement.
+- **Consequences**:
+  - Completely reproducible environments with zero manual console configuration.
+- **Rejected Alternatives**:
+  - *Terraform Workspaces in a single directory*: Confining dev and prod state to workspace flags often leads to accidental cross-environment applies; discrete directory structures (`infra/dev`, `infra/prod`) provide hard isolation.
+  - *Manual GCS bucket and topic creation*: Violates the immutable infrastructure and CI/CD automation requirement.
