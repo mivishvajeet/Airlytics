@@ -1,0 +1,16 @@
+id,ident,type,name,latitude_deg,longitude_deg,elevation_ft,continent,iso_country,iso_region,municipality,scheduled_service,gps_code,iata_code,local_code
+2434,EHAM,large_airport,Amsterdam Airport Schiphol,52.308601,4.76389,-11,EU,NL,NL-NH,Amsterdam,yes,EHAM,AMS,
+2433,EGLL,large_airport,London Heathrow Airport,51.4706,-0.461941,83,EU,GB,GB-ENG,London,yes,EGLL,LHR,
+2513,EDDF,large_airport,Frankfurt am Main Airport,50.033333,8.570556,364,EU,DE,DE-HE,Frankfurt am Main,yes,EDDF,FRA,
+2520,LFPG,large_airport,Charles de Gaulle International Airport,49.012798,2.55,392,EU,FR,FR-IDF,Paris,yes,LFPG,CDG,
+2521,LFPO,large_airport,Paris-Orly Airport,48.723333,2.379444,291,EU,FR,FR-IDF,Paris,yes,LFPO,ORY,
+2514,EDDM,large_airport,Munich Airport,48.353799,11.786,1487,EU,DE,DE-BY,Munich,yes,EDDM,MUC,
+2581,LEMD,large_airport,Adolfo Suárez Madrid–Barajas Airport,40.471926,-3.56264,1998,EU,ES,ES-M,Madrid,yes,LEMD,MAD,
+2582,LEBL,large_airport,Josep Tarradellas Barcelona-El Prat Airport,41.2971,2.07846,12,EU,ES,ES-CT,Barcelona,yes,LEBL,BCN,
+2569,LSZH,large_airport,Zurich Airport,47.464699,8.54917,1416,EU,CH,CH-ZH,Zurich,yes,LSZH,ZRH,
+2544,EBBR,large_airport,Brussels Airport,50.901402,4.48444,184,EU,BE,BE-BRU,Brussels,yes,EBBR,BRU,
+3628,KJFK,large_airport,John F. Kennedy International Airport,40.639801,-73.7789,13,NA,US,US-NY,New York,yes,KJFK,JFK,JFK
+3752,KORD,large_airport,Chicago O'Hare International Airport,41.9786,-87.9048,668,NA,US,US-IL,Chicago,yes,KORD,ORD,ORD
+3632,KLAX,large_airport,Los Angeles International Airport,33.942501,-118.407997,125,NA,US,US-CA,Los Angeles,yes,KLAX,LAX,LAX
+2195,OMDB,large_airport,Dubai International Airport,25.252799,55.364398,62,AS,AE,AE-DU,Dubai,yes,OMDB,DXB,
+2188,WSSS,large_airport,Singapore Changi Airport,1.35019,103.994003,22,AS,SG,SG-01,Singapore,yes,WSSS,SIN,

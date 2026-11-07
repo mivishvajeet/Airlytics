@@ -32,3 +32,19 @@ This document captures every architectural decision, context, rationale, and rej
 - **Rejected Alternatives**:
   - *Direct WebSocket connection*: OpenSky does not provide a free raw WebSocket feed for general public use; REST polling is the supported API.
   - *Direct insertion into BigQuery from poller*: Bypassing Pub/Sub removes the buffer required for backpressure and prevents Dataflow from applying session windows across flight pings.
+
+---
+
+## ADR 002: BigQuery Storage Strategy, Partitioning, and Clustering
+- **Status**: Accepted (Phase 2)
+- **Context**: Flight ping streams generate high write volumes. Uncontrolled table growth or unoptimized scans in BigQuery create substantial cost overhead. Queries frequently filter by single aircraft (`icao24`) or callsign over recent time windows.
+- **Decision**:
+  - Separate storage into two isolated datasets: `raw_flights` (raw append-only telemetry, late pings, DLQ) and `curated_flights` (sessionized flight legs, takeoff/landing events, route analytics).
+  - Partition `raw_flights.raw_pings` daily by `DATE(event_timestamp)` with a 90-day partition expiration policy.
+  - Cluster `raw_flights.raw_pings` by `(icao24, callsign)` to allow BigQuery execution engine to prune blocks when transforming flight tracks.
+  - Pre-compute BigQuery GIS `GEOGRAPHY` buffers (`ST_BUFFER(airport_point, 5000)`) in `dim_airport` to optimize spatial join performance downstream.
+- **Consequences**:
+  - Eliminates full-table scan costs for incremental transformations; automatically bounds storage expenditure for personal budget protection.
+- **Rejected Alternatives**:
+  - *Partitioning by ingestion time*: Event time (`event_timestamp`) reflects actual transponder broadcast time; ingestion time creates time skew during backfills or delayed API responses.
+  - *Single combined dataset*: Combining raw and curated layers impedes IAM role separation and table lifecycle management.
