@@ -64,3 +64,22 @@ This document captures every architectural decision, context, rationale, and rej
 - **Rejected Alternatives**:
   - *Fixed 1-hour tumbling windows*: Arbitrarily slices flight legs across window boundaries, corrupting origin, destination, and duration statistics.
   - *Dropping late data silently*: Prevents auditability of streaming lag and introduces telemetry blind spots; rejected in favor of side-output landing into `raw_flights.late_pings`.
+
+---
+
+## ADR 004: Dataform Incremental ELT, GIS Geofencing, and Quality Assertions
+- **Status**: Accepted (Phase 4)
+- **Context**: Raw pings must be enriched with airport identities, takeoff/landing event types, and route statistics. Running full-table scans over millions of pings is prohibitively expensive and violates the <0.1% duplicate threshold.
+- **Decision**:
+  - Implement incremental Dataform SQLX models utilizing `${when(incremental(), ...)}` predicates bounded by `event_timestamp` watermarks.
+  - Pre-generate geodesic 5km buffer polygons (`ST_BUFFER(airport_point, 5000.0)`) in `dim_airport` to enable spatial containment joins via `ST_CONTAINS(a.geofence_polygon, p.ping_point)` for takeoff and landing event detection.
+  - Detect takeoff vs. landing events using aircraft vertical speed kinematics (`vertical_rate >= 1.5 m/s` for takeoff, `<= -1.5 m/s` for landing) within airport vicinity.
+  - Enforce automated quality assertions:
+    - Deduplication assertion fails if duplicate rate in `fact_airport_event` exceeds 0.1%.
+    - Flight duration assertion ensures durations are positive and <= 24 hours.
+    - Airspace freshness assertion flags any ingestion delay exceeding 10 minutes.
+- **Consequences**:
+  - Incremental execution processes only newly arrived partitions, guaranteeing sub-linear query costs.
+- **Rejected Alternatives**:
+  - *Dataflow-only spatial joins*: Geofencing 70,000 global airports in Apache Beam workers requires heavy memory footprints or external API calls; BigQuery GIS natively evaluates spatial indexes efficiently in SQL.
+  - *Manual BigQuery scheduled queries*: Lacks version control, dependency DAG resolution, assertion testing, and CI/CD compiler validation provided by Dataform.

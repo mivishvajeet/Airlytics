@@ -1,0 +1,25 @@
+config {
+  type: "assertion",
+  schema: "curated_flights_assertions",
+  name: "assert_airspace_freshness",
+  description: "Alerts if no fresh telemetry has landed in raw_pings within the last 10 minutes"
+}
+
+WITH latest_ping AS (
+  SELECT
+    COALESCE(MAX(event_timestamp), TIMESTAMP('2020-01-01')) AS max_event_ts,
+    COALESCE(MAX(ingest_timestamp), TIMESTAMP('2020-01-01')) AS max_ingest_ts
+  FROM
+    ${ref("raw_pings")}
+)
+
+SELECT
+  max_event_ts,
+  max_ingest_ts,
+  CURRENT_TIMESTAMP() AS current_ts,
+  TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), max_ingest_ts, MINUTE) AS ingest_delay_minutes
+FROM
+  latest_ping
+WHERE
+  -- Returns a violation row if ingestion delay exceeds 10 minutes during active operating windows
+  TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), max_ingest_ts, MINUTE) > 10

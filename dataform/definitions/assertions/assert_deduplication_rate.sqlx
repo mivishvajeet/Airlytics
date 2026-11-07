@@ -1,0 +1,25 @@
+config {
+  type: "assertion",
+  schema: "curated_flights_assertions",
+  name: "assert_deduplication_rate",
+  description: "Ensures duplicate event rate in curated fact_airport_event is strictly below 0.1%"
+}
+
+WITH counts AS (
+  SELECT
+    COUNT(1) AS total_rows,
+    COUNT(DISTINCT event_id) AS unique_event_ids
+  FROM
+    ${ref("fact_airport_event")}
+)
+
+SELECT
+  total_rows,
+  unique_event_ids,
+  (total_rows - unique_event_ids) AS duplicate_rows,
+  ROUND(((total_rows - unique_event_ids) / NULLIF(total_rows, 0)) * 100.0, 4) AS duplicate_pct
+FROM
+  counts
+WHERE
+  total_rows > 0
+  AND ((total_rows - unique_event_ids) / total_rows) >= 0.001 -- Fail if duplicates >= 0.1%

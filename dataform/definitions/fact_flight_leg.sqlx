@@ -1,0 +1,130 @@
+config {
+  type: "incremental",
+  schema: "curated_flights",
+  name: "fact_flight_leg",
+  description: "Curated discrete flight legs with resolved origin and destination airports and trajectory statistics",
+  uniqueKey: ["flight_leg_id"],
+  bigquery: {
+    partitionBy: "DATE(start_timestamp)",
+    clusterBy: ["origin_airport_ident", "destination_airport_ident", "icao24"]
+  },
+  tags: ["curated", "facts"]
+}
+
+WITH raw_pings_ordered AS (
+  SELECT
+    LOWER(TRIM(icao24)) AS icao24,
+    NULLIF(TRIM(callsign), '') AS callsign,
+    event_timestamp,
+    event_time_epoch,
+    latitude,
+    longitude,
+    baro_altitude,
+    velocity,
+    LAG(event_time_epoch) OVER (PARTITION BY icao24 ORDER BY event_time_epoch) AS prev_epoch
+  FROM
+    ${ref("raw_pings")}
+  WHERE
+    latitude IS NOT NULL
+    AND longitude IS NOT NULL
+    ${when(incremental(), `AND event_timestamp > (SELECT TIMESTAMP_SUB(COALESCE(MAX(start_timestamp), TIMESTAMP('2020-01-01')), INTERVAL 2 HOUR) FROM ${self()})`)}
+),
+
+session_flags AS (
+  SELECT
+    *,
+    CASE
+      WHEN prev_epoch IS NULL OR (event_time_epoch - prev_epoch) > 900 THEN 1
+      ELSE 0
+    END AS is_new_session
+  FROM
+    raw_pings_ordered
+),
+
+session_groups AS (
+  SELECT
+    *,
+    SUM(is_new_session) OVER (PARTITION BY icao24 ORDER BY event_time_epoch ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS session_id
+  FROM
+    session_flags
+),
+
+session_aggregates AS (
+  SELECT
+    icao24,
+    session_id,
+    ARRAY_AGG(callsign IGNORE NULLS ORDER BY event_time_epoch DESC LIMIT 1)[SAFE_OFFSET(0)] AS callsign,
+    MIN(event_timestamp) AS start_timestamp,
+    MAX(event_timestamp) AS end_timestamp,
+    ARRAY_AGG(latitude ORDER BY event_time_epoch ASC LIMIT 1)[SAFE_OFFSET(0)] AS origin_lat,
+    ARRAY_AGG(longitude ORDER BY event_time_epoch ASC LIMIT 1)[SAFE_OFFSET(0)] AS origin_lon,
+    ARRAY_AGG(latitude ORDER BY event_time_epoch DESC LIMIT 1)[SAFE_OFFSET(0)] AS dest_lat,
+    ARRAY_AGG(longitude ORDER BY event_time_epoch DESC LIMIT 1)[SAFE_OFFSET(0)] AS dest_lon,
+    MAX(baro_altitude) AS max_altitude_m,
+    MAX(velocity) AS max_velocity_mps,
+    AVG(velocity) AS avg_velocity_mps,
+    COUNT(1) AS total_pings
+  FROM
+    session_groups
+  GROUP BY
+    1, 2
+  HAVING
+    total_pings >= 2
+    AND TIMESTAMP_DIFF(MAX(event_timestamp), MIN(event_timestamp), SECOND) >= 60
+),
+
+resolved_airports AS (
+  SELECT
+    sa.*,
+    ROUND(TIMESTAMP_DIFF(sa.end_timestamp, sa.start_timestamp, SECOND) / 60.0, 2) AS duration_minutes,
+    orig.ident AS origin_airport_ident,
+    orig.iata_code AS origin_iata,
+    dest.ident AS destination_airport_ident,
+    dest.iata_code AS destination_iata
+  FROM
+    session_aggregates sa
+  -- Spatial join for origin airport (within 10,000m)
+  LEFT JOIN (
+    SELECT
+      ident,
+      iata_code,
+      airport_point
+    FROM
+      ${ref("dim_airport")}
+  ) orig ON ST_DISTANCE(ST_GEOGPOINT(sa.origin_lon, sa.origin_lat), orig.airport_point) <= 10000.0
+  -- Spatial join for destination airport (within 10,000m)
+  LEFT JOIN (
+    SELECT
+      ident,
+      iata_code,
+      airport_point
+    FROM
+      ${ref("dim_airport")}
+  ) dest ON ST_DISTANCE(ST_GEOGPOINT(sa.dest_lon, sa.dest_lat), dest.airport_point) <= 10000.0
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY sa.icao24, sa.start_timestamp
+    ORDER BY
+      COALESCE(ST_DISTANCE(ST_GEOGPOINT(sa.origin_lon, sa.origin_lat), orig.airport_point), 999999) +
+      COALESCE(ST_DISTANCE(ST_GEOGPOINT(sa.dest_lon, sa.dest_lat), dest.airport_point), 999999) ASC
+  ) = 1
+)
+
+SELECT
+  TO_HEX(MD5(CONCAT(icao24, '_', CAST(start_timestamp AS STRING)))) AS flight_leg_id,
+  icao24,
+  callsign,
+  start_timestamp,
+  end_timestamp,
+  duration_minutes,
+  origin_airport_ident,
+  destination_airport_ident,
+  origin_iata,
+  destination_iata,
+  ROUND(max_altitude_m, 2) AS max_altitude_m,
+  ROUND(max_velocity_mps, 2) AS max_velocity_mps,
+  ROUND(avg_velocity_mps, 2) AS avg_velocity_mps,
+  total_pings,
+  15.0 AS session_gap_minutes,
+  CURRENT_TIMESTAMP() AS created_at
+FROM
+  resolved_airports

@@ -1,0 +1,19 @@
+config {
+  type: "assertion",
+  schema: "curated_flights_assertions",
+  name: "assert_valid_flight_duration",
+  description: "Ensures that all flight legs have realistic duration (positive and <= 24 hours)"
+}
+
+SELECT
+  flight_leg_id,
+  icao24,
+  callsign,
+  start_timestamp,
+  end_timestamp,
+  duration_minutes
+FROM
+  ${ref("fact_flight_leg")}
+WHERE
+  duration_minutes <= 0
+  OR duration_minutes > 1440.0

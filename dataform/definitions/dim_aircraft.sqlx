@@ -1,0 +1,38 @@
+config {
+  type: "incremental",
+  schema: "curated_flights",
+  name: "dim_aircraft",
+  description: "Curated aircraft dimension derived incrementally from observed ADS-B telemetry",
+  uniqueKey: ["icao24"],
+  bigquery: {
+    clusterBy: ["icao24"]
+  },
+  tags: ["curated", "dimensions"]
+}
+
+WITH new_observations AS (
+  SELECT
+    LOWER(TRIM(icao24)) AS icao24,
+    ARRAY_AGG(NULLIF(TRIM(callsign), '') IGNORE NULLS ORDER BY event_timestamp DESC LIMIT 1)[SAFE_OFFSET(0)] AS latest_callsign,
+    ANY_VALUE(NULLIF(TRIM(origin_country), '')) AS origin_country,
+    MIN(event_timestamp) AS first_seen_timestamp,
+    MAX(event_timestamp) AS last_seen_timestamp,
+    COUNT(1) AS total_pings_observed
+  FROM
+    ${ref("raw_pings")}
+  ${when(incremental(), `WHERE event_timestamp > (SELECT MAX(last_seen_timestamp) FROM ${self()})`)}
+  GROUP BY
+    1
+)
+
+SELECT
+  n.icao24,
+  COALESCE(n.latest_callsign, ${when(incremental(), `e.latest_callsign`, `NULL`)}) AS latest_callsign,
+  COALESCE(n.origin_country, ${when(incremental(), `e.origin_country`, `NULL`)}) AS origin_country,
+  ${when(incremental(), `LEAST(COALESCE(e.first_seen_timestamp, n.first_seen_timestamp), n.first_seen_timestamp)`, `n.first_seen_timestamp`)} AS first_seen_timestamp,
+  ${when(incremental(), `GREATEST(COALESCE(e.last_seen_timestamp, n.last_seen_timestamp), n.last_seen_timestamp)`, `n.last_seen_timestamp`)} AS last_seen_timestamp,
+  ${when(incremental(), `COALESCE(e.total_pings_observed, 0) + n.total_pings_observed`, `n.total_pings_observed`)} AS total_pings_observed,
+  TRUE AS is_active
+FROM
+  new_observations n
+${when(incremental(), `FULL OUTER JOIN ${self()} e ON n.icao24 = e.icao24`)}

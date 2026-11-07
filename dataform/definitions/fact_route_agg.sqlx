@@ -1,0 +1,35 @@
+config {
+  type: "incremental",
+  schema: "curated_flights",
+  name: "fact_route_agg",
+  description: "Curated hourly route aggregations tracking route flight counts and flight duration variance",
+  uniqueKey: ["route_id", "window_hour"],
+  bigquery: {
+    partitionBy: "DATE(window_hour)",
+    clusterBy: ["origin_airport_ident", "destination_airport_ident"]
+  },
+  tags: ["curated", "facts"]
+}
+
+SELECT
+  CONCAT(origin_airport_ident, '-', destination_airport_ident) AS route_id,
+  origin_airport_ident,
+  destination_airport_ident,
+  ANY_VALUE(origin_iata) AS origin_iata,
+  ANY_VALUE(destination_iata) AS destination_iata,
+  TIMESTAMP_TRUNC(start_timestamp, HOUR) AS window_hour,
+  COUNT(1) AS total_flights,
+  ROUND(AVG(duration_minutes), 2) AS avg_duration_minutes,
+  ROUND(MIN(duration_minutes), 2) AS min_duration_minutes,
+  ROUND(MAX(duration_minutes), 2) AS max_duration_minutes,
+  ROUND(AVG(max_altitude_m), 2) AS avg_max_altitude_m,
+  CURRENT_TIMESTAMP() AS computed_at
+FROM
+  ${ref("fact_flight_leg")}
+WHERE
+  origin_airport_ident IS NOT NULL
+  AND destination_airport_ident IS NOT NULL
+  AND origin_airport_ident != destination_airport_ident
+  ${when(incremental(), `AND start_timestamp > (SELECT COALESCE(MAX(window_hour), TIMESTAMP('2020-01-01')) FROM ${self()})`)}
+GROUP BY
+  1, 2, 3, 6

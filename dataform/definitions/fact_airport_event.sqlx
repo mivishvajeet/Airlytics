@@ -1,0 +1,88 @@
+config {
+  type: "incremental",
+  schema: "curated_flights",
+  name: "fact_airport_event",
+  description: "Curated airport takeoff and landing events derived from GIS geofence containment and altitude kinematics",
+  uniqueKey: ["event_id"],
+  bigquery: {
+    partitionBy: "DATE(event_timestamp)",
+    clusterBy: ["airport_ident", "event_type"]
+  },
+  tags: ["curated", "facts"]
+}
+
+WITH candidate_pings AS (
+  SELECT
+    p.message_id,
+    p.event_timestamp,
+    LOWER(TRIM(p.icao24)) AS icao24,
+    NULLIF(TRIM(p.callsign), '') AS callsign,
+    p.latitude,
+    p.longitude,
+    p.baro_altitude,
+    p.velocity,
+    p.vertical_rate,
+    ST_GEOGPOINT(p.longitude, p.latitude) AS ping_point
+  FROM
+    ${ref("raw_pings")} p
+  WHERE
+    p.latitude IS NOT NULL
+    AND p.longitude IS NOT NULL
+    AND p.baro_altitude IS NOT NULL
+    AND p.baro_altitude <= 2500.0  -- Event detection focused below 2,500m altitude
+    AND p.velocity IS NOT NULL
+    AND p.velocity >= 40.0         -- Moving aircraft speed threshold
+    ${when(incremental(), `AND p.event_timestamp > (SELECT COALESCE(MAX(event_timestamp), TIMESTAMP('2020-01-01')) FROM ${self()})`)}
+),
+
+spatial_matches AS (
+  SELECT
+    cp.message_id,
+    cp.event_timestamp,
+    cp.icao24,
+    cp.callsign,
+    cp.baro_altitude,
+    cp.velocity,
+    cp.vertical_rate,
+    a.ident AS airport_ident,
+    a.iata_code AS airport_iata,
+    a.name AS airport_name,
+    ST_DISTANCE(cp.ping_point, a.airport_point) AS distance_to_airport_m,
+    CASE
+      WHEN cp.vertical_rate >= 1.5 THEN 'TAKEOFF'
+      WHEN cp.vertical_rate <= -1.5 THEN 'LANDING'
+      ELSE NULL
+    END AS event_type,
+    ROW_NUMBER() OVER (
+      PARTITION BY a.ident, cp.icao24, DATE(cp.event_timestamp), CASE WHEN cp.vertical_rate >= 1.5 THEN 'TAKEOFF' ELSE 'LANDING' END
+      ORDER BY ST_DISTANCE(cp.ping_point, a.airport_point) ASC
+    ) AS dedupe_rank
+  FROM
+    candidate_pings cp
+  JOIN
+    ${ref("dim_airport")} a
+  ON
+    ST_CONTAINS(a.geofence_polygon, cp.ping_point)
+  WHERE
+    cp.vertical_rate IS NOT NULL
+    AND (cp.vertical_rate >= 1.5 OR cp.vertical_rate <= -1.5)
+)
+
+SELECT
+  TO_HEX(MD5(CONCAT(airport_ident, '_', icao24, '_', CAST(event_timestamp AS STRING)))) AS event_id,
+  airport_ident,
+  airport_iata,
+  airport_name,
+  icao24,
+  callsign,
+  event_type,
+  event_timestamp,
+  baro_altitude AS altitude_m,
+  velocity AS velocity_mps,
+  vertical_rate AS vertical_rate_mps,
+  distance_to_airport_m,
+  CURRENT_TIMESTAMP() AS created_at
+FROM
+  spatial_matches
+WHERE
+  dedupe_rank = 1
