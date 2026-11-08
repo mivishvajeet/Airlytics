@@ -5,6 +5,15 @@ resource "google_service_account" "ingest_sa" {
   project      = var.project_id
 }
 
+# Artifact Registry Repository for Airlytics container images
+resource "google_artifact_registry_repository" "airlytics_repo" {
+  project       = var.project_id
+  location      = var.region
+  repository_id = "airlytics"
+  description   = "Docker repository for Airlytics container images"
+  format        = "DOCKER"
+}
+
 # Grant Pub/Sub Publisher role to Ingestion Service Account
 resource "google_project_iam_member" "pubsub_publisher" {
   project = var.project_id

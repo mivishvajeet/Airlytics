@@ -42,7 +42,7 @@ variable "alert_email" {
 
 variable "ingestion_image" {
   type        = string
-  default     = "europe-west1-docker.pkg.dev/airlytics-dev-123456/airlytics/ingest:latest"
-  description = "Container image for OpenSky poller"
+  default     = "us-docker.pkg.dev/cloudrun/container/hello"
+  description = "Container image for OpenSky poller (initial boot image)"
 }
 

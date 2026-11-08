@@ -5,5 +5,5 @@ bq_location           = "EU"
 billing_account_id    = "000000-000000-000000"
 monthly_budget_amount = 25
 alert_email           = "dev-alerts@example.com"
-ingestion_image       = "europe-west1-docker.pkg.dev/airlytics-dev/airlytics/ingest:latest"
+ingestion_image       = "us-docker.pkg.dev/cloudrun/container/hello"
 

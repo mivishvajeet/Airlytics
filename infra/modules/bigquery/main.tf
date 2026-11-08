@@ -32,11 +32,12 @@ resource "google_bigquery_table" "raw_pings" {
   table_id   = "raw_pings"
   project    = var.project_id
 
+  require_partition_filter = false
+
   time_partitioning {
-    type                     = "DAY"
-    field                    = "event_timestamp"
-    expiration_ms            = var.raw_retention_days * 86400000
-    require_partition_filter = false
+    type          = "DAY"
+    field         = "event_timestamp"
+    expiration_ms = var.raw_retention_days * 86400000
   }
 
   clustering = ["icao24", "callsign"]
