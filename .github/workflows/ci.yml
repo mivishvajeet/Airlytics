@@ -6,6 +6,8 @@ on:
     paths:
       - 'ingest/**'
       - 'dataflow/**'
+      - 'spark/**'
+      - 'dbt_airlytics/**'
       - 'dataform/**'
       - 'infra/**'
       - 'sql/**'
@@ -36,16 +38,17 @@ jobs:
           pip install pytest flake8
           pip install -r ingest/requirements.txt
           pip install -r dataflow/requirements.txt
+          pip install -r spark/requirements.txt
 
       - name: Lint with Flake8
         run: |
-          flake8 ingest/ dataflow/ --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 ingest/ dataflow/ spark/ --count --select=E9,F63,F7,F82 --show-source --statistics
 
-      - name: Execute Pytest Suite (Beam Transforms & Schemas)
+      - name: Execute Pytest Suite (Beam, Spark, Ingestion, & Schemas)
         env:
           PYTHONPATH: .
         run: |
-          pytest -v ingest/tests/ dataflow/tests/ tests/
+          pytest -v ingest/tests/ dataflow/tests/ spark/tests/ tests/
 
   # 2. Terraform Format & Validation
   terraform-validate:
@@ -97,4 +100,23 @@ jobs:
         run: |
           cd dataform
           dataform compile
+
+  # 4. dbt Structure & Model Validation
+  dbt-validate:
+    name: Validate dbt Models & Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate dbt Project Structure
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m unittest tests/test_dbt_structure.py
 
