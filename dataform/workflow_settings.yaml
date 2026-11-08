@@ -1,4 +1,4 @@
-defaultProject: airlytics-dev-123456
+defaultProject: airlytics-dev
 defaultLocation: EU
 defaultDataset: curated_flights
 defaultAssertionDataset: curated_flights_assertions
