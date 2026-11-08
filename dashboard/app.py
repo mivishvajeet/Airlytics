@@ -1,7 +1,15 @@
 """Airlytics Real-Time Flight Tracking & Airspace Analytics Dashboard."""
 
-from datetime import datetime, timezone
 import os
+from pathlib import Path
+import sys
+
+# Ensure repository root is on sys.path for direct `streamlit run dashboard/app.py`
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from datetime import datetime, timezone
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -459,3 +467,4 @@ with tab_arch:
         """,
         unsafe_allow_html=True,
     )
+

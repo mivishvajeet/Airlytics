@@ -4,8 +4,14 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import math
+from pathlib import Path
 import random
+import sys
 from typing import Any, Dict, List, Optional, Tuple
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 try:
     import pandas as pd
     PANDAS_AVAILABLE = True
