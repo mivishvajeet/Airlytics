@@ -60,3 +60,9 @@ package-lock.json
 .DS_Store
 .AppleDouble
 .LSOverride
+
+# Local runtime data (never commit generated telemetry or checkpoints)
+data/
+warehouse/
+.env.*
+!.env.example
