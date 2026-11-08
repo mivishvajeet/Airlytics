@@ -1,4 +1,8 @@
-"""PySpark Structured Streaming pipeline for flight telemetry and sessionization."""
+"""Local PySpark Structured Streaming pipeline for flight telemetry.
+
+The active local sink is Parquet. No cloud credentials or cloud connectors are
+required. Kafka offsets and Spark state are recovered from the local checkpoint.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +10,7 @@ import argparse
 import logging
 import os
 import sys
-from typing import Any, Optional
+from typing import Optional
 
 try:
     from pyspark.sql import DataFrame, SparkSession
@@ -26,67 +30,57 @@ try:
         unix_timestamp,
     )
     from pyspark.sql.streaming import StreamingQuery
+    from pyspark.sql.types import StructType
     PYSPARK_AVAILABLE = True
 except ImportError:
     PYSPARK_AVAILABLE = False
     SparkSession = None  # type: ignore
-    DataFrame = None     # type: ignore
+    DataFrame = None  # type: ignore
+    StructType = None  # type: ignore
 
 from spark.schemas import FLIGHT_PING_SCHEMA
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
 logger = logging.getLogger("airlytics-spark")
 
 
-def get_spark_session(
-    app_name: str = "Airlytics-Streaming",
-    master: Optional[str] = None,
-    gcp_project_id: Optional[str] = None,
-) -> SparkSession:
-    """Initialize or retrieve a SparkSession configured with Kafka and BigQuery connectors."""
-    builder = SparkSession.builder.appName(app_name)
-
-    if master:
-        builder = builder.master(master)
-
-    # Standard Kafka and BigQuery connector coordinates
-    packages = [
-        "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0",
-        "com.google.cloud.spark:spark-bigquery-with-dependencies_2.12:0.34.0",
-    ]
-    builder = builder.config("spark.jars.packages", ",".join(packages))
-    builder = builder.config("spark.sql.streaming.forceDeleteTempCheckpointLocation", "true")
-    builder = builder.config("spark.sql.shuffle.partitions", "4")
-
-    if gcp_project_id:
-        builder = builder.config("spark.datasource.bigquery.projectId", gcp_project_id)
-
-    return builder.getOrCreate()
-
-
-def parse_and_watermark_pings(raw_stream_df: DataFrame, watermark_delay: str = "10 minutes") -> DataFrame:
-    """Deserialize Kafka raw JSON payloads, cast timestamps, and set watermark."""
-    # Handle both direct Kafka format (with key/value columns) and test DataFrames
-    if "value" in raw_stream_df.columns:
-        parsed_df = raw_stream_df.select(
-            from_json(col("value").cast("string"), FLIGHT_PING_SCHEMA).alias("ping")
-        ).select("ping.*")
-    else:
-        parsed_df = raw_stream_df
-
-    # Cast event_timestamp string to TimestampType
-    timestamped_df = parsed_df.withColumn(
-        "event_time", to_timestamp(col("event_timestamp"))
+def get_spark_session(app_name: str = "Airlytics-Local-Streaming") -> SparkSession:
+    """Create a local Spark session; Kafka connector is supplied to spark-submit."""
+    if not PYSPARK_AVAILABLE:
+        raise RuntimeError("PySpark is required. Install spark/requirements.txt.")
+    return (
+        SparkSession.builder
+        .appName(app_name)
+        .master(os.getenv("SPARK_MASTER", "local[*]"))
+        .config("spark.sql.shuffle.partitions", os.getenv("SPARK_SHUFFLE_PARTITIONS", "4"))
+        .config("spark.sql.session.timeZone", "UTC")
+        .getOrCreate()
     )
 
-    # Watermark handles late-arriving telemetry up to watermark_delay
-    return timestamped_df.withWatermark("event_time", watermark_delay)
+
+def parse_and_watermark_pings(
+    raw_stream_df: DataFrame,
+    watermark_delay: str = "10 minutes",
+) -> DataFrame:
+    """Parse Kafka JSON values and apply an event-time watermark."""
+    parsed = raw_stream_df.select(
+        from_json(col("value").cast("string"), FLIGHT_PING_SCHEMA).alias("ping")
+    ).select("ping.*")
+    timestamped = parsed.withColumn("event_time", to_timestamp(col("event_timestamp")))
+    return timestamped.withWatermark("event_time", watermark_delay)
 
 
-def sessionize_flight_legs(watermarked_df: DataFrame, gap_duration: str = "15 minutes") -> DataFrame:
-    """Aggregate individual position pings into discrete flight legs using session windowing."""
+def sessionize_flight_legs(
+    watermarked_df: DataFrame,
+    gap_duration: str = "15 minutes",
+) -> DataFrame:
+    """Build aircraft sessions using a 15-minute inactivity gap."""
     return (
-        watermarked_df.groupBy(
+        watermarked_df
+        .groupBy(
             col("icao24"),
             session_window(col("event_time"), gap_duration).alias("session"),
         )
@@ -101,7 +95,10 @@ def sessionize_flight_legs(watermarked_df: DataFrame, gap_duration: str = "15 mi
         )
         .withColumn(
             "duration_minutes",
-            spark_round((unix_timestamp(col("session_end")) - unix_timestamp(col("session_start"))) / 60.0, 1),
+            spark_round(
+                (unix_timestamp(col("session_end")) - unix_timestamp(col("session_start"))) / 60.0,
+                1,
+            ),
         )
         .withColumn(
             "flight_leg_id",
@@ -122,88 +119,62 @@ def sessionize_flight_legs(watermarked_df: DataFrame, gap_duration: str = "15 mi
     )
 
 
-def start_streaming_query(
+def start_parquet_query(
     df: DataFrame,
-    sink_type: str = "console",
-    checkpoint_dir: str = "/tmp/airlytics-checkpoints",
-    bigquery_table: Optional[str] = None,
-    gcs_temp_bucket: Optional[str] = None,
-    output_path: Optional[str] = None,
+    output_path: str,
+    checkpoint_dir: str,
 ) -> StreamingQuery:
-    """Start streaming writer for the processed DataFrame."""
-    writer = df.writeStream.outputMode("complete" if "flight_leg_id" in df.columns else "append")
-
-    if sink_type == "console":
-        return (
-            writer.format("console")
-            .option("truncate", "false")
-            .option("checkpointLocation", f"{checkpoint_dir}/console")
-            .start()
-        )
-    elif sink_type == "bigquery" and bigquery_table:
-        bq_writer = (
-            writer.format("bigquery")
-            .option("table", bigquery_table)
-            .option("checkpointLocation", f"{checkpoint_dir}/bigquery")
-        )
-        if gcs_temp_bucket:
-            bq_writer = bq_writer.option("temporaryGcsBucket", gcs_temp_bucket)
-        return bq_writer.start()
-    elif sink_type == "parquet" and output_path:
-        return (
-            writer.format("parquet")
-            .option("path", output_path)
-            .option("checkpointLocation", f"{checkpoint_dir}/parquet")
-            .start()
-        )
-    else:
-        raise ValueError(f"Unsupported sink_type: {sink_type}")
+    """Write completed sessions to local Parquet in append mode."""
+    return (
+        df.writeStream
+        .outputMode("append")
+        .format("parquet")
+        .option("path", output_path)
+        .option("checkpointLocation", checkpoint_dir)
+        .option("compression", "snappy")
+        .start()
+    )
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Airlytics PySpark Structured Streaming Pipeline")
-    parser.add_argument("--kafka-bootstrap", default=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:19092"))
+    parser = argparse.ArgumentParser(description="Airlytics local Spark streaming pipeline")
+    parser.add_argument(
+        "--kafka-bootstrap",
+        default=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:19092"),
+    )
     parser.add_argument("--topic", default=os.getenv("KAFKA_TOPIC", "raw-flight-pings"))
-    parser.add_argument("--sink", choices=["console", "bigquery", "parquet"], default="console")
-    parser.add_argument("--checkpoint-dir", default=os.getenv("CHECKPOINT_DIR", "/tmp/airlytics-checkpoints"))
-    parser.add_argument("--bq-table", default=os.getenv("BQ_TABLE", "airlytics-dev.curated_flights_dev.fact_flight_leg"))
-    parser.add_argument("--gcs-temp-bucket", default=os.getenv("GCS_TEMP_BUCKET"))
-    parser.add_argument("--parquet-path", default=os.getenv("PARQUET_PATH", "/tmp/airlytics-parquet"))
-    parser.add_argument("--project-id", default=os.getenv("GCP_PROJECT_ID", "airlytics-dev"))
+    parser.add_argument("--output-path", "--parquet-path", dest="output_path",
+                        default=os.getenv("PARQUET_PATH", "data/bronze/flight-legs"))
+    parser.add_argument("--checkpoint-dir",
+                        default=os.getenv("CHECKPOINT_DIR", "data/checkpoints/flight-legs"))
+    parser.add_argument("--starting-offsets", choices=["earliest", "latest"], default="earliest")
     args = parser.parse_args()
 
     if not PYSPARK_AVAILABLE:
-        print("ERROR: pyspark is required. Install via: pip install -r spark/requirements.txt")
+        logger.error("PySpark is required. Install with: pip install -r spark/requirements.txt")
         sys.exit(1)
 
-    spark = get_spark_session(gcp_project_id=args.project_id)
-    logger.info("Spark session initialized. Subscribing to Kafka topic: %s @ %s", args.topic, args.kafka_bootstrap)
-
-    raw_stream = (
+    spark = get_spark_session()
+    logger.info("Reading Kafka topic %s at %s", args.topic, args.kafka_bootstrap)
+    raw = (
         spark.readStream.format("kafka")
         .option("kafka.bootstrap.servers", args.kafka_bootstrap)
         .option("subscribe", args.topic)
-        .option("startingOffsets", "latest")
-        .option("failOnDataLoss", "false")
+        .option("startingOffsets", args.starting_offsets)
+        .option("failOnDataLoss", "true")
         .load()
     )
+    legs = sessionize_flight_legs(parse_and_watermark_pings(raw))
+    query = start_parquet_query(legs, args.output_path, args.checkpoint_dir)
 
-    watermarked_pings = parse_and_watermark_pings(raw_stream)
-    flight_legs = sessionize_flight_legs(watermarked_pings)
-
-    logger.info("Starting streaming sink: %s", args.sink)
-    query = start_streaming_query(
-        flight_legs,
-        sink_type=args.sink,
-        checkpoint_dir=args.checkpoint_dir,
-        bigquery_table=args.bq_table,
-        gcs_temp_bucket=args.gcs_temp_bucket,
-        output_path=args.parquet_path,
-    )
-
-    query.awaitTermination()
+    try:
+        query.awaitTermination()
+    except KeyboardInterrupt:
+        logger.info("Stopping stream gracefully...")
+        query.stop()
+    finally:
+        spark.stop()
 
 
 if __name__ == "__main__":
     main()
-
