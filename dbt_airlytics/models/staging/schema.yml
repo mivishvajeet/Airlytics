@@ -1,0 +1,31 @@
+version: 2
+
+models:
+  - name: stg_raw_pings
+    description: "Cleaned and deduplicated raw ADS-B transponder position pings"
+    columns:
+      - name: message_id
+        description: "Primary key for the raw ping"
+        tests:
+          - unique
+          - not_null
+      - name: icao24
+        description: "24-bit ICAO aircraft identifier"
+        tests:
+          - not_null
+      - name: event_timestamp
+        description: "Event broadcast timestamp in UTC"
+        tests:
+          - not_null
+
+  - name: stg_airports
+    description: "Standardized reference airport coordinates and geospatial buffer polygons"
+    columns:
+      - name: airport_id
+        tests:
+          - unique
+          - not_null
+      - name: ident
+        tests:
+          - unique
+          - not_null

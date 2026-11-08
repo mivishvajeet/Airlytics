@@ -48,3 +48,4 @@ This plan captures the architectural migration of Airlytics from Google Cloud na
 ### Phase 5: CI/CD & Production Hardening
 - [ ] GitHub Actions pipeline for PySpark unit tests, dbt compilation/testing, and Terraform validation.
 - [ ] End-to-end local and cloud verification run.
+

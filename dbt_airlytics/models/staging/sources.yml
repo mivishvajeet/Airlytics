@@ -1,0 +1,34 @@
+version: 2
+
+sources:
+  - name: raw_flights
+    database: "{{ env_var('GCP_PROJECT_ID', 'airlytics-dev') }}"
+    schema: "{{ env_var('RAW_DATASET', 'raw_flights_dev') }}"
+    description: "Raw flight telemetry streamed from Kafka / PubSub"
+    tables:
+      - name: raw_pings
+        description: "Raw individual transponder ADS-B position reports"
+        columns:
+          - name: message_id
+            description: "Surrogate key for the ping"
+            tests:
+              - not_null
+          - name: icao24
+            description: "24-bit ICAO airframe hex address"
+            tests:
+              - not_null
+          - name: event_timestamp
+            description: "Transponder broadcast timestamp in UTC"
+            tests:
+              - not_null
+          - name: latitude
+            description: "GPS Latitude in decimal degrees"
+            tests:
+              - not_null
+          - name: longitude
+            description: "GPS Longitude in decimal degrees"
+            tests:
+              - not_null
+
+      - name: raw_airports
+        description: "Raw OurAirports open airport reference data"

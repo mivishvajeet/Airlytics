@@ -56,3 +56,4 @@ if PYSPARK_AVAILABLE:
 else:
     FLIGHT_PING_SCHEMA = None  # type: ignore
     FLIGHT_LEG_SCHEMA = None   # type: ignore
+

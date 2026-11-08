@@ -71,3 +71,4 @@ services:
       - BBOX_LAMAX=55.0
       - BBOX_LOMAX=15.0
     restart: unless-stopped
+

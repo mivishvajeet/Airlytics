@@ -1,0 +1,51 @@
+version: 2
+
+models:
+  - name: dim_airport
+    description: "Curated airport dimension table with pre-computed BigQuery GIS 5km buffer polygons"
+    columns:
+      - name: airport_id
+        tests:
+          - unique
+          - not_null
+      - name: ident
+        tests:
+          - unique
+          - not_null
+
+  - name: fact_flight_leg
+    description: "Sessionized flight legs reconstructed using 15-minute gap windows"
+    columns:
+      - name: flight_leg_id
+        tests:
+          - unique
+          - not_null
+      - name: icao24
+        tests:
+          - not_null
+      - name: session_start
+        tests:
+          - not_null
+      - name: session_end
+        tests:
+          - not_null
+
+  - name: fact_airport_event
+    description: "Takeoff and landing events resolved using ST_CONTAINS with vertical rate kinematics"
+    columns:
+      - name: event_id
+        tests:
+          - unique
+          - not_null
+      - name: event_type
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['TAKEOFF', 'LANDING']
+
+  - name: fact_route_agg
+    description: "Hourly aggregations of flight volume, durations, and speed profiles"
+    columns:
+      - name: operating_date
+        tests:
+          - not_null
