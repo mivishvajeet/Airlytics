@@ -113,7 +113,9 @@ After Spark has written Parquet files, configure dbt using the local profile exa
 mkdir -p warehouse
 cp dbt_airlytics/profiles.yml.example ~/.dbt/profiles.yml
 dbt debug --project-dir dbt_airlytics
-dbt build --project-dir dbt_airlytics
+```
+
+**dbt migration is not complete yet.** Existing SQL models still contain BigQuery-specific syntax and source declarations. Do not run `dbt build` against the DuckDB profile until those models and their source definitions have been ported and tested. This is an explicit remaining task, not a working feature.
 ```
 
 Run the dashboard:
