@@ -95,3 +95,4 @@ You can copy and adapt these bullet points for your resume:
 | **Ingestion Freshness** | Alert on 10m silence | Cloud Monitoring metric absence alert policy (`duration = "600s"`) |
 | **Dev Environment Cost** | < $25 / month | Worker caps (2), GCS 7-day TTL, partition expiration (90d), budget alert triggers |
 | **Security SLA** | 0 static keys | 100% Workload Identity Federation OIDC token exchange |
+
