@@ -5,9 +5,12 @@
 [![CD](https://github.com/mivishvajeet/Airlytics/actions/workflows/cd.yml/badge.svg)](https://github.com/mivishvajeet/Airlytics/actions/workflows/cd.yml)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-brightgreen.svg)](https://www.python.org/)
+[![Apache Kafka](https://img.shields.io/badge/Apache%20Kafka-Redpanda-red.svg)](https://kafka.apache.org/)
+[![PySpark](https://img.shields.io/badge/PySpark-Structured%20Streaming-E25A1C.svg)](https://spark.apache.org/)
+[![dbt](https://img.shields.io/badge/dbt-BigQuery-FF694B.svg)](https://www.getdbt.com/)
 [![Apache Beam](https://img.shields.io/badge/Apache%20Beam-2.50%2B-orange.svg)](https://beam.apache.org/)
 [![GCP Dataflow](https://img.shields.io/badge/GCP-Dataflow%20Flex%20Template-4285F4.svg)](https://cloud.google.com/dataflow)
-[![BigQuery GIS](https://img.shields.io/badge/BigQuery-GIS%20%26%20Dataform-669DF6.svg)](https://cloud.google.com/bigquery)
+[![BigQuery GIS](https://img.shields.io/badge/BigQuery-GIS%20%26%20Spatial-669DF6.svg)](https://cloud.google.com/bigquery)
 [![Terraform](https://img.shields.io/badge/IaC-Terraform%201.5%2B-purple.svg)](https://www.terraform.io/)
 
 Airlytics is a production-grade, portfolio-quality real-time streaming data platform built on Google Cloud. It ingests continuous ADS-B flight transponder telemetry from the [OpenSky Network REST API](https://opensky-network.org/), performs stateful sessionization and windowed streaming with Apache Beam on Cloud Dataflow, and derives decision-ready dimensional marts, spatial geofences, and route metrics using BigQuery GIS and Dataform.
@@ -18,33 +21,33 @@ Airlytics is a production-grade, portfolio-quality real-time streaming data plat
 
 ```mermaid
 flowchart LR
-    subgraph Ingestion ["Ingestion (Cloud Run & Pub/Sub)"]
-        OpenSky["OpenSky Network REST API"] -->|10-15s Polling with Backoff| CloudRun["Cloud Run Job (Python 3.11)"]
-        CloudRun -->|JSON Pings| PubSub["Pub/Sub Topic: raw-flight-pings"]
-        CloudRun -.->|Malformed / Out-of-bounds| DLQ["Pub/Sub Topic: deadletter-pings"]
+    subgraph Ingestion ["1. Telemetry Ingestion"]
+        OpenSky["OpenSky Network REST API"] -->|10-15s Polling with Backoff| Ingest["Ingestion Service (Python 3.11)"]
+        Ingest -->|Partitioned by icao24| Broker["Apache Kafka / Cloud PubSub"]
+        Ingest -.->|Malformed or Out-of-bounds| DLQ["Dead-Letter Queue"]
     end
 
-    subgraph Streaming ["Streaming Engine (Google Cloud Dataflow)"]
-        PubSub --> Beam["Dataflow Flex Template (Beam Streaming)"]
-        Beam -->|Direct Append| BQRaw["BigQuery: raw_flights.raw_pings"]
-        Beam -->|15-Min Gap Session Windows| FlightLegs["fact_flight_leg Candidates"]
-        Beam -->|Late Data (>10m)| BQLate["BigQuery: raw_flights.late_pings"]
-        Beam -->|Corrupt Payloads| BQDLQ["BigQuery: raw_flights.deadletter_pings"]
+    subgraph Streaming ["2. Stream Processing Engine"]
+        Broker --> Engine["PySpark Structured Streaming / Apache Beam"]
+        Engine -->|Direct Append| BQRaw["BigQuery: raw_flights.raw_pings"]
+        Engine -->|15-Min Gap Session Windows| FlightLegs["fact_flight_leg Candidates"]
+        Engine -->|Late Data over 10m| BQLate["BigQuery: raw_flights.late_pings"]
+        Engine -->|Checkpoints and Offsets| GCS["Cloud Storage Checkpoint Bucket"]
     end
 
-    subgraph Transformation ["ELT & Curated Marts (Dataform & BQ GIS)"]
-        OurAirports["OurAirports Open Data (GCS)"] --> DimAirport["curated_flights.dim_airport (GIS 5km Buffers)"]
-        BQRaw & FlightLegs --> Dataform["Dataform Incremental SQLX Models"]
-        Dataform --> CuratedLegs["curated_flights.fact_flight_leg"]
-        Dataform --> CuratedEvents["curated_flights.fact_airport_event (ST_CONTAINS)"]
-        Dataform --> RouteAgg["curated_flights.fact_route_agg"]
-        Dataform --> DimAircraft["curated_flights.dim_aircraft"]
+    subgraph Transformation ["3. Transformation Layer"]
+        OurAirports["OurAirports Reference (GCS)"] --> DimAirport["curated_flights.dim_airport (GIS 5km Buffers)"]
+        BQRaw --> Transform["dbt-bigquery / Dataform Models"]
+        FlightLegs --> Transform
+        Transform --> CuratedLegs["curated_flights.fact_flight_leg"]
+        Transform --> CuratedEvents["curated_flights.fact_airport_event (ST_CONTAINS)"]
+        Transform --> RouteAgg["curated_flights.fact_route_agg"]
     end
 
-    subgraph Governance ["Governance, Observability & CI/CD"]
-        Freshness["Cloud Monitoring: Freshness Alert (10m silence)"]
-        Budget["GCP Billing Budget Alert ($25 dev / $50 prod)"]
-        WIF["GitHub Actions CI/CD via Workload Identity Federation"]
+    subgraph Serving ["4. Serving and Analytics"]
+        CuratedEvents --> Dashboard["Streamlit Radar and Congestion Dashboard"]
+        RouteAgg --> Dashboard
+        CuratedLegs --> Dashboard
     end
 ```
 
@@ -76,6 +79,7 @@ cd Airlytics
 # Execute all tests
 PYTHONPATH=. python3 -m unittest discover -s ingest/tests -p "test_*.py"
 PYTHONPATH=. python3 -m unittest discover -s dataflow/tests -p "test_*.py"
+PYTHONPATH=. python3 -m unittest discover -s spark/tests -p "test_*.py"
 PYTHONPATH=. python3 -m unittest discover -s tests -p "test_*.py"
 ```
 
@@ -118,9 +122,11 @@ To keep this overview concise and secure, detailed technical documentation and o
 Airlytics/
 ├── .github/workflows/        # Zero-key CI/CD pipelines (WIF OIDC, PR tests, approval gates)
 ├── dashboard/                # Real-Time Airspace & Route Analytics Dashboard (Streamlit)
+├── dbt_airlytics/            # Modern dbt transformations & data quality assertions
+├── spark/                    # PySpark Structured Streaming pipeline & schemas
 ├── dataflow/                 # Apache Beam streaming pipeline & Flex Template
 ├── dataform/                 # Incremental SQLX models & data quality assertions
-├── ingest/                   # OpenSky REST API Poller service (Python 3.11 / Cloud Run)
+├── ingest/                   # OpenSky REST API Poller service (Kafka & Pub/Sub producers)
 ├── infra/                    # Multi-environment Terraform IaC (dev, prod, modules)
 ├── reference/                # Static reference datasets (OurAirports hub CSV)
 ├── scripts/                  # Utility scripts (live data population, reference seeding)

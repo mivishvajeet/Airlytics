@@ -17,3 +17,4 @@ output "cluster_name" {
   value       = try(google_dataproc_cluster.ephemeral_cluster[0].name, "none")
   description = "Name of the managed Dataproc cluster if provisioned"
 }
+

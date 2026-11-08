@@ -117,3 +117,4 @@ resource "google_dataproc_cluster" "ephemeral_cluster" {
     managed_by  = "terraform"
   }
 }
+

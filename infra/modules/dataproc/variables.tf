@@ -18,3 +18,4 @@ variable "enable_managed_cluster" {
   default     = false
   description = "Whether to provision an ephemeral single-node Dataproc cluster (false uses Dataproc Serverless / local Spark for cost protection)"
 }
+
