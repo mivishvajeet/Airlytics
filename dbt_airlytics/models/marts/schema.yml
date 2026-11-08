@@ -49,3 +49,4 @@ models:
       - name: operating_date
         tests:
           - not_null
+

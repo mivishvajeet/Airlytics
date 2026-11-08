@@ -67,3 +67,4 @@ legs AS (
 
 SELECT * FROM legs
 WHERE duration_minutes >= 1.0
+

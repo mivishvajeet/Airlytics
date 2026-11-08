@@ -77,3 +77,12 @@ module "budget" {
   monthly_budget_amount = var.monthly_budget_amount
 }
 
+# 7. Dataproc & Spark Infrastructure Module
+module "dataproc" {
+  source                 = "../modules/dataproc"
+  project_id             = var.project_id
+  environment            = var.environment
+  region                 = var.region
+  enable_managed_cluster = false
+}
+

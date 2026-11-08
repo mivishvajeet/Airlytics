@@ -15,3 +15,4 @@ freshness AS (
 SELECT *
 FROM freshness
 WHERE latency_minutes > 10
+

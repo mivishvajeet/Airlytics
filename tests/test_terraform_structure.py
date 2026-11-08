@@ -13,7 +13,7 @@ class TestTerraformInfra(unittest.TestCase):
 
     def test_all_modules_exist(self):
         """All required infrastructure modules must contain main.tf, variables.tf, and outputs.tf."""
-        required_modules = ["bigquery", "pubsub", "cloud_run", "dataflow", "monitoring", "budget"]
+        required_modules = ["bigquery", "pubsub", "cloud_run", "dataflow", "monitoring", "budget", "dataproc"]
         for mod in required_modules:
             mod_path = os.path.join(INFRA_DIR, "modules", mod)
             self.assertTrue(os.path.isdir(mod_path), f"Missing module directory: {mod}")

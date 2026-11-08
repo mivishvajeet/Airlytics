@@ -43,3 +43,4 @@ deduplicated AS (
 )
 
 SELECT * FROM deduplicated
+

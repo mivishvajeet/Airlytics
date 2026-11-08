@@ -22,3 +22,4 @@ airlytics:
       timeout_seconds: 300
       location: EU
       priority: interactive
+

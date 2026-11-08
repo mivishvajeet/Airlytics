@@ -10,3 +10,4 @@ FROM {{ ref('fact_flight_leg') }}
 WHERE
     duration_minutes < 0
     OR duration_minutes > 1440
+

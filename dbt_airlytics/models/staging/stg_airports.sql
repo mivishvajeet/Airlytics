@@ -32,3 +32,4 @@ WHERE
     AND longitude_deg IS NOT NULL
     AND CAST(latitude_deg AS FLOAT64) BETWEEN -90.0 AND 90.0
     AND CAST(longitude_deg AS FLOAT64) BETWEEN -180.0 AND 180.0
+

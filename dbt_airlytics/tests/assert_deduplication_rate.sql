@@ -21,3 +21,4 @@ metrics AS (
 SELECT *
 FROM metrics
 WHERE duplicate_rate > 0.001 -- > 0.1% SLA threshold
+

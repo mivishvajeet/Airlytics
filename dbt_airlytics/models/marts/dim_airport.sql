@@ -24,3 +24,4 @@ SELECT
     airport_point,
     geofence_polygon
 FROM {{ ref('stg_airports') }}
+

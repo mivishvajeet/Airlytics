@@ -45,3 +45,4 @@ spatial_matches AS (
 )
 
 SELECT * FROM spatial_matches
+

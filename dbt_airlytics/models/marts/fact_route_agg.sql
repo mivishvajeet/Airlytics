@@ -30,3 +30,4 @@ GROUP BY
     departure_hour,
     callsign,
     origin_country
+
