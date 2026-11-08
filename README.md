@@ -94,6 +94,10 @@ Airlytics/
 │   └── workflows/
 │       ├── ci.yml            # CI: pytest (Beam transforms), terraform validate/fmt, Dataform compile
 │       └── cd.yml            # CD: WIF OIDC -> terraform apply dev -> deploy dev -> approval gate -> prod
+├── dashboard/                # Real-Time Airspace & Route Analytics Dashboard
+│   ├── app.py                # Streamlit UI with Live Map, Sessionization, & Congestion views
+│   ├── data_provider.py      # Telemetry provider (OpenSky live feed, BigQuery, or synthetic)
+│   └── requirements.txt      # streamlit, plotly, pydeck, pandas
 ├── dataflow/                 # Apache Beam streaming pipeline & Flex Template
 │   ├── Dockerfile            # Container definition for Dataflow Flex Template
 │   ├── metadata.json         # Flex Template CLI/UI parameters definition
@@ -171,6 +175,15 @@ export BBOX_LOMAX=8.0
 
 python3 -m ingest.main
 ```
+
+### 6.4 Launching the Interactive Analytics Dashboard
+Launch the real-time Airlytics Streamlit dashboard to explore live airspace maps, sessionized flight legs, and airport congestion metrics:
+
+```bash
+pip install -r dashboard/requirements.txt
+streamlit run dashboard/app.py
+```
+*(Supports toggling between Live OpenSky streaming and Synthetic corridor simulation)*
 
 ---
 
