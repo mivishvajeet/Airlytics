@@ -8,10 +8,10 @@ terraform {
     }
   }
 
-  backend "gcs" {
-    bucket = "airlytics-tfstate-dev"
-    prefix = "terraform/state"
-  }
+  # backend "gcs" {
+  #   bucket = "airlytics-tfstate-dev"
+  #   prefix = "terraform/state"
+  # }
 }
 
 provider "google" {

@@ -1,5 +1,6 @@
 # GCP Billing Budget and Spending Guardrail
 resource "google_billing_budget" "budget" {
+  count           = var.billing_account_id != "000000-000000-000000" && var.billing_account_id != "" ? 1 : 0
   billing_account = var.billing_account_id
   display_name    = "Airlytics Monthly Budget Guardrail - ${var.environment} ($${var.monthly_budget_amount})"
 
