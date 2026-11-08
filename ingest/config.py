@@ -57,6 +57,22 @@ class IngestionConfig:
         )
     )
 
+    # Streaming Ingestion Sink Configuration ("kafka" or "pubsub")
+    streaming_sink: str = field(
+        default_factory=lambda: os.getenv("STREAMING_SINK", "kafka").lower()
+    )
+
+    # Apache Kafka Configuration
+    kafka_bootstrap_servers: str = field(
+        default_factory=lambda: os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+    )
+    kafka_topic: str = field(
+        default_factory=lambda: os.getenv("KAFKA_TOPIC", "raw-flight-pings")
+    )
+    kafka_deadletter_topic: str = field(
+        default_factory=lambda: os.getenv("KAFKA_DEADLETTER_TOPIC", "deadletter-pings")
+    )
+
     # Google Cloud Pub/Sub Configuration
     gcp_project_id: str = field(
         default_factory=lambda: os.getenv("GCP_PROJECT_ID", "airlytics-dev-123456")

@@ -72,3 +72,4 @@ ST_CONTAINS(a.geofence_polygon, p.ping_point) AND p.vertical_rate >= 1.5
 -- Landing: inside geofence descending at <= -1.5 m/s
 ST_CONTAINS(a.geofence_polygon, p.ping_point) AND p.vertical_rate <= -1.5
 ```
+

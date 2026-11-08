@@ -1,0 +1,73 @@
+version: "3.8"
+
+services:
+  # ===========================================================================
+  # 1. Apache Kafka Compatible Broker (Redpanda KRaft)
+  # Ultra-fast, zero-JVM, 100% Kafka wire protocol compatible
+  # ===========================================================================
+  kafka:
+    image: docker.redpanda.com/redpandadata/redpanda:v23.3.11
+    container_name: airlytics-kafka
+    command:
+      - redpanda
+      - start
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://kafka:9092,external://localhost:19092
+      - --pandaproxy-addr 0.0.0.0:8082
+      - --advertise-pandaproxy-addr localhost:8082
+      - --schema-registry-addr 0.0.0.0:8081
+      - --smp 1
+      - --memory 512M
+      - --reserve-memory 0M
+      - --overprovisioned
+      - --node-id 0
+      - --check=false
+    ports:
+      - "19092:19092" # External host port for PySpark & local scripts
+      - "9092:9092"   # Internal container port
+      - "8081:8081"   # Schema registry port
+      - "8082:8082"   # HTTP Proxy port
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================================================
+  # 2. Kafka Web Console (Visual UI for topics, partitions, and messages)
+  # Accessible at: http://localhost:8080
+  # ===========================================================================
+  kafka-console:
+    image: docker.redpanda.com/redpandadata/console:v2.4.3
+    container_name: airlytics-kafka-console
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_BROKERS: "kafka:9092"
+
+  # ===========================================================================
+  # 3. OpenSky Flight Telemetry Producer
+  # Polls OpenSky Network API and publishes to Kafka topic 'raw-flight-pings'
+  # ===========================================================================
+  poller:
+    build:
+      context: .
+      dockerfile: ingest/Dockerfile
+    container_name: airlytics-poller
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      - STREAMING_SINK=kafka
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_TOPIC=raw-flight-pings
+      - KAFKA_DEADLETTER_TOPIC=deadletter-pings
+      - POLL_INTERVAL_SECONDS=5.0
+      - BBOX_LAMIN=45.0
+      - BBOX_LOMIN=-5.0
+      - BBOX_LAMAX=55.0
+      - BBOX_LOMAX=15.0
+    restart: unless-stopped

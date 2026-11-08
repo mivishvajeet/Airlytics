@@ -102,3 +102,4 @@ Configure these in your GitHub Repository under **Settings** → **Secrets and v
 | `PROD_GCP_PROJECT_ID` | Variable | GCP Project ID for production |
 | `PROD_WIF_PROVIDER` | Secret | Production Workload Identity Pool provider |
 | `PROD_WIF_SA` | Secret | Production deployment Service Account email |
+

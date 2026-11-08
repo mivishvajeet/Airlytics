@@ -8,6 +8,7 @@ import time
 from typing import Any
 
 from ingest.config import IngestionConfig
+from ingest.kafka_producer import KafkaPingPublisher
 from ingest.poller import OpenSkyPoller
 from ingest.publisher import PubSubPingPublisher
 
@@ -25,7 +26,10 @@ class IngestionRunner:
         self.config = config
         self.dry_run = dry_run
         self.poller = OpenSkyPoller(config)
-        self.publisher = PubSubPingPublisher(config, dry_run=dry_run)
+        if config.streaming_sink == "kafka":
+            self.publisher = KafkaPingPublisher(config, dry_run=dry_run)
+        else:
+            self.publisher = PubSubPingPublisher(config, dry_run=dry_run)
         self._running = True
         self._setup_signals()
 
