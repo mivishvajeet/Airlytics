@@ -1,25 +1,10 @@
-# Example dbt profile for Google BigQuery
-# Copy this to ~/.dbt/profiles.yml or set DBT_PROFILES_DIR=.
 airlytics:
-  target: dev
+  target: local
   outputs:
-    dev:
-      type: bigquery
-      method: oauth # Uses gcloud application-default login
-      project: "{{ env_var('GCP_PROJECT_ID', 'airlytics-dev') }}"
-      dataset: "{{ env_var('DBT_DATASET', 'curated_flights_dev') }}"
+    local:
+      type: duckdb
+      path: warehouse/airlytics.duckdb
+      schema: main
       threads: 4
-      timeout_seconds: 300
-      location: EU
-      priority: interactive
-
-    prod:
-      type: bigquery
-      method: oauth
-      project: "{{ env_var('GCP_PROJECT_ID', 'airlytics-prod') }}"
-      dataset: curated_flights_prod
-      threads: 8
-      timeout_seconds: 300
-      location: EU
-      priority: interactive
-
+      extensions:
+        - parquet

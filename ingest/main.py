@@ -10,7 +10,6 @@ from typing import Any
 from ingest.config import IngestionConfig
 from ingest.kafka_producer import KafkaPingPublisher
 from ingest.poller import OpenSkyPoller
-from ingest.publisher import PubSubPingPublisher
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,7 +28,7 @@ class IngestionRunner:
         if config.streaming_sink == "kafka":
             self.publisher = KafkaPingPublisher(config, dry_run=dry_run)
         else:
-            self.publisher = PubSubPingPublisher(config, dry_run=dry_run)
+            raise ValueError('Airlytics is local Kafka-only. Set STREAMING_SINK=kafka; cloud Pub/Sub is not part of the free local runtime.')
         self._running = True
         self._setup_signals()
 
@@ -47,7 +46,7 @@ class IngestionRunner:
         logger.info(
             "Starting OpenSky Ingestion Service. Target: %s, Topic: %s, Interval: %.1fs, BBox: %s",
             self.config.opensky_url,
-            self.config.pubsub_topic_id,
+            self.config.kafka_topic,
             self.config.poll_interval_seconds,
             "Enabled" if self.config.has_bbox else "Global",
         )
@@ -76,7 +75,7 @@ class IngestionRunner:
                 dlq_published = 0
 
             logger.info(
-                "Cycle %d completed in %.2fms (HTTP %d). States: %d | Published: %d | DLQ: %d | Total Pub: %d",
+                "Cycle %d completed in %.2fms (HTTP %d). States: %d | Published: %d | DLQ: %d | Total published: %d",
                 cycle_count,
                 poll_result.api_latency_ms,
                 poll_result.status_code,
@@ -86,7 +85,7 @@ class IngestionRunner:
                 total_pings_published,
             )
 
-            # Check if duration limit reached (for scheduled Cloud Run Jobs)
+            # Check if duration limit reached (for bounded local runs)
             if self.config.run_duration_seconds > 0:
                 elapsed = time.time() - start_time
                 if elapsed >= self.config.run_duration_seconds:

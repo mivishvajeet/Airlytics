@@ -1,138 +1,171 @@
 # Airlytics ✈️
-### Real-Time Flight Tracking & Airspace Analytics Platform on Google Cloud
+### Free, local-first real-time flight telemetry and analytics
 
-[![CI](https://github.com/mivishvajeet/Airlytics/actions/workflows/ci.yml/badge.svg)](https://github.com/mivishvajeet/Airlytics/actions/workflows/ci.yml)
-[![CD](https://github.com/mivishvajeet/Airlytics/actions/workflows/cd.yml/badge.svg)](https://github.com/mivishvajeet/Airlytics/actions/workflows/cd.yml)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/Python-3.11%2B-brightgreen.svg)](https://www.python.org/)
-[![Apache Kafka](https://img.shields.io/badge/Apache%20Kafka-Redpanda-red.svg)](https://kafka.apache.org/)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
+[![Apache Kafka](https://img.shields.io/badge/Apache%20Kafka-KRaft-black.svg)](https://kafka.apache.org/)
 [![PySpark](https://img.shields.io/badge/PySpark-Structured%20Streaming-E25A1C.svg)](https://spark.apache.org/)
-[![dbt](https://img.shields.io/badge/dbt-BigQuery-FF694B.svg)](https://www.getdbt.com/)
-[![Apache Beam](https://img.shields.io/badge/Apache%20Beam-2.50%2B-orange.svg)](https://beam.apache.org/)
-[![GCP Dataflow](https://img.shields.io/badge/GCP-Dataflow%20Flex%20Template-4285F4.svg)](https://cloud.google.com/dataflow)
-[![BigQuery GIS](https://img.shields.io/badge/BigQuery-GIS%20%26%20Spatial-669DF6.svg)](https://cloud.google.com/bigquery)
-[![Terraform](https://img.shields.io/badge/IaC-Terraform%201.5%2B-purple.svg)](https://www.terraform.io/)
+[![dbt Core](https://img.shields.io/badge/dbt-Core-FF694B.svg)](https://www.getdbt.com/)
+[![DuckDB](https://img.shields.io/badge/DuckDB-local%20warehouse-FFF000.svg)](https://duckdb.org/)
+[![Docker](https://img.shields.io/badge/Docker-local%20services-2496ED.svg)](https://www.docker.com/)
 
-Airlytics is a production-grade, portfolio-quality real-time streaming data platform built on Google Cloud. It ingests continuous ADS-B flight transponder telemetry from the [OpenSky Network REST API](https://opensky-network.org/), performs stateful sessionization and windowed streaming with Apache Beam on Cloud Dataflow, and derives decision-ready dimensional marts, spatial geofences, and route metrics using BigQuery GIS and Dataform.
+Airlytics turns public ADS-B flight-position data from the [OpenSky Network](https://opensky-network.org/) into useful flight and airspace analytics. It is designed to run on a developer's computer using free, open-source software. **The project does not require a Google Cloud account, a paid API, a managed Kafka service, or a cloud deployment.**
+
+> **Cost rule: $0 project infrastructure.** Do not run Terraform against a cloud account, deploy cloud resources, or enable paid services for this project. OpenSky access is subject to its own fair-use limits and availability. GitHub-hosted Actions may have plan-specific usage limits; local checks are the default.
 
 ---
 
-## 1. System Architecture
+## Architecture
 
 ```mermaid
 flowchart LR
-    subgraph Ingestion ["1. Telemetry Ingestion"]
-        OpenSky["OpenSky Network REST API"] -->|10-15s Polling with Backoff| Ingest["Ingestion Service (Python 3.11)"]
-        Ingest -->|Partitioned by icao24| Broker["Apache Kafka / Cloud PubSub"]
-        Ingest -.->|Malformed or Out-of-bounds| DLQ["Dead-Letter Queue"]
-    end
-
-    subgraph Streaming ["2. Stream Processing Engine"]
-        Broker --> Engine["PySpark Structured Streaming / Apache Beam"]
-        Engine -->|Direct Append| BQRaw["BigQuery: raw_flights.raw_pings"]
-        Engine -->|15-Min Gap Session Windows| FlightLegs["fact_flight_leg Candidates"]
-        Engine -->|Late Data over 10m| BQLate["BigQuery: raw_flights.late_pings"]
-        Engine -->|Checkpoints and Offsets| GCS["Cloud Storage Checkpoint Bucket"]
-    end
-
-    subgraph Transformation ["3. Transformation Layer"]
-        OurAirports["OurAirports Reference (GCS)"] --> DimAirport["curated_flights.dim_airport (GIS 5km Buffers)"]
-        BQRaw --> Transform["dbt-bigquery / Dataform Models"]
-        FlightLegs --> Transform
-        Transform --> CuratedLegs["curated_flights.fact_flight_leg"]
-        Transform --> CuratedEvents["curated_flights.fact_airport_event (ST_CONTAINS)"]
-        Transform --> RouteAgg["curated_flights.fact_route_agg"]
-    end
-
-    subgraph Serving ["4. Serving and Analytics"]
-        CuratedEvents --> Dashboard["Streamlit Radar and Congestion Dashboard"]
-        RouteAgg --> Dashboard
-        CuratedLegs --> Dashboard
-    end
+  API["OpenSky Network API"] --> ING["Python poller / producer"]
+  ING --> K["Apache Kafka (KRaft, Docker)"]
+  K --> SP["PySpark Structured Streaming"]
+  SP -->|raw/bronze output| P["Local Parquet files"]
+  P --> DBT["dbt Core + dbt-duckdb"]
+  DBT --> D["DuckDB analytical marts"]
+  D --> UI["Streamlit dashboard"]
 ```
 
----
+| Layer | Technology | Responsibility |
+|---|---|---|
+| Source | OpenSky REST API | Public flight state vectors |
+| Ingestion | Python | Polling, normalization, validation, event publishing |
+| Message broker | Apache Kafka (KRaft) | Durable local event buffer and replay |
+| Stream processing | PySpark Structured Streaming | Event-time handling, watermarks, deduplication and 15-minute sessions |
+| Data lake | Parquet on local disk | Low-cost, columnar raw/processed storage |
+| Warehouse | DuckDB | Local analytical database |
+| Transformations | dbt Core + dbt-duckdb | Staging, marts and data quality tests |
+| Dashboard | Streamlit | Flight activity and route analytics |
+| Runtime | Docker Compose + local Python | Reproducible local development |
 
-## 2. Key Technical Highlights & Success Criteria
+No BigQuery, Cloud Storage, Dataproc, Dataflow, Pub/Sub, Cloud Run, Artifact Registry, or paid managed services are required.
 
-| Requirement | Implementation Architecture | Target SLA / Metric | Status |
-| :--- | :--- | :--- | :--- |
-| **End-to-End Latency** | Streaming Pub/Sub buffer + Dataflow streaming write | < 2 minutes ping-to-queryable | ✅ Passed |
-| **Deduplication** | Unique surrogate keys (`MD5(icao24 \|\| timestamp)`) + Dataform incremental merges | < 0.1% duplicate rate | ✅ Enforced via assertion |
-| **Freshness Alerting** | Cloud Monitoring metric absence alert policy (`duration = "600s"`) | Alert triggered after 10m silence | ✅ Declared in Terraform |
-| **Cost Guardrails** | Dataflow workers capped to 2, GCS 7-day temp lifecycle, GCP Billing alerts | Personal budget protection ($25/mo) | ✅ Enforced in IaC & Beam |
-| **Security & Zero Keys** | Workload Identity Federation (WIF) OIDC authentication | Strictly 0 static SA JSON keys | ✅ Enforced in CI/CD |
-| **Deployment Automation**| Multi-stage GitHub Actions with GitHub Environment approval gates | Deployments only via CI/CD | ✅ Automated |
+## Quickstart
 
----
+### Prerequisites
+- Docker Desktop (or Docker Engine) and Docker Compose
+- Python 3.11+
+- Java 17+ (required by PySpark)
+- Git
 
-## 3. Quickstart & Local Testing
-
-### 3.1 Run All Unit Tests
-Execute the complete test suite (Ingestion parsers, Apache Beam DoFn transforms, Dataform validation, and IaC compliance):
+### 1. Clone and configure
 
 ```bash
-# Clone the repository
 git clone https://github.com/mivishvajeet/Airlytics.git
 cd Airlytics
-
-# Execute all tests
-PYTHONPATH=. python3 -m unittest discover -s ingest/tests -p "test_*.py"
-PYTHONPATH=. python3 -m unittest discover -s dataflow/tests -p "test_*.py"
-PYTHONPATH=. python3 -m unittest discover -s spark/tests -p "test_*.py"
-PYTHONPATH=. python3 -m unittest discover -s tests -p "test_*.py"
+cp .env.example .env
 ```
 
-### 3.2 Ingest Live ADS-B Data Locally (Dry-Run Mode)
-Verify OpenSky API connectivity and telemetry decoding locally with zero cloud dependencies:
+### 2. Start the local broker
 
 ```bash
-export DRY_RUN=true
-export POLL_INTERVAL_SECONDS=5.0
-export RUN_DURATION_SECONDS=15
-
-python3 -m ingest.main
+docker compose up -d kafka kafka-ui
 ```
 
-### 3.3 Launch the Interactive Airspace Radar Dashboard
-Launch the interactive Streamlit analytics dashboard to explore live radar maps, altitude distributions, and airport congestion:
+Kafka UI: http://localhost:8080
+
+### 3. Install Python dependencies
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r ingest/requirements.txt
+pip install -r spark/requirements.txt
 pip install -r dashboard/requirements.txt
+pip install dbt-core dbt-duckdb
+```
+
+### 4. Start the OpenSky producer
+
+In a second terminal (with the virtual environment activated):
+
+```bash
+export STREAMING_SINK=kafka
+export KAFKA_BOOTSTRAP_SERVERS=localhost:19092
+export KAFKA_TOPIC=raw-flight-pings
+python -m ingest.main
+```
+
+Respect OpenSky request limits. Keep the configured polling interval conservative; do not poll more frequently to try to obtain more data.
+
+### 5. Start Spark
+
+In a third terminal:
+
+```bash
+PYTHONPATH=. spark-submit \
+  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0 \
+  spark/streaming_pipeline.py \
+  --kafka-bootstrap localhost:19092 \
+  --topic raw-flight-pings \
+  --sink parquet \
+  --parquet-path data/bronze/flight-legs \
+  --checkpoint-dir data/checkpoints/flight-legs
+```
+
+### 6. Transform and explore
+
+After Spark has written Parquet files, configure dbt using the local profile example and run:
+
+```bash
+mkdir -p warehouse
+cp dbt_airlytics/profiles.yml.example ~/.dbt/profiles.yml
+dbt debug --project-dir dbt_airlytics
+```
+
+**dbt migration is not complete yet.** Existing SQL models still contain BigQuery-specific syntax and source declarations. Do not run `dbt build` against the DuckDB profile until those models and their source definitions have been ported and tested. This is an explicit remaining task, not a working feature.
+```
+
+Run the dashboard:
+
+```bash
 streamlit run dashboard/app.py
 ```
-Open **`http://localhost:8501`** in your browser.
 
----
+The dashboard's current data-provider implementation is still being migrated from its earlier prototype. Treat it as a UI prototype until the DuckDB-backed provider is completed; do not interpret synthetic fallback data as live pipeline output.
 
-## 4. Documentation & Deep Dives
+## Local commands
 
-To keep this overview concise and secure, detailed technical documentation and operational runbooks are organized in dedicated documents:
+```bash
+make up       # Start local Kafka and Kafka UI
+make down     # Stop local containers
+make logs     # Follow local service logs
+make clean    # Stop services and remove local Kafka volume
+```
 
-- 📖 **[Architecture & Data Specifications](docs/architecture.md)**: Deep dive into telemetry schemas, session windowing mechanics, and BigQuery GIS spatial math.
-- 🚀 **[GCP Deployment & Infrastructure Guide](docs/deployment.md)**: Step-by-step instructions for Terraform provisioning, Cloud Run container builds, and WIF CI/CD secrets configuration.
-- 🏛️ **[Architectural Decision Records (ADR 000–006)](DECISIONS.md)**: Design context, trade-offs, and rejected alternatives for every technology choice.
-- 💼 **[Portfolio & Technical Interview Guide](PORTFOLIO_GUIDE.md)**: Elevator pitch, resume bullet points, SLA cheat sheet, and model answers for technical interviews.
+`make clean` deletes the local Kafka data volume. It does not delete the Parquet data or DuckDB database.
 
----
-
-## 5. Repository Structure
+## Repository map
 
 ```
 Airlytics/
-├── .github/workflows/        # Zero-key CI/CD pipelines (WIF OIDC, PR tests, approval gates)
-├── dashboard/                # Real-Time Airspace & Route Analytics Dashboard (Streamlit)
-├── dbt_airlytics/            # Modern dbt transformations & data quality assertions
-├── spark/                    # PySpark Structured Streaming pipeline & schemas
-├── dataflow/                 # Apache Beam streaming pipeline & Flex Template
-├── dataform/                 # Incremental SQLX models & data quality assertions
-├── ingest/                   # OpenSky REST API Poller service (Kafka & Pub/Sub producers)
-├── infra/                    # Multi-environment Terraform IaC (dev, prod, modules)
-├── reference/                # Static reference datasets (OurAirports hub CSV)
-├── scripts/                  # Utility scripts (live data population, reference seeding)
-├── sql/                      # Standalone DDL schemas for raw and curated layers
-├── tests/                    # Project-level test suites (schemas, workflows, IaC structure)
-├── docs/                     # Detailed architecture, security, and deployment guides
-├── DECISIONS.md              # Architectural Decision Records (ADRs)
-└── PORTFOLIO_GUIDE.md        # Technical interview guide and resume bullet points
+├── ingest/                 # OpenSky poller and Kafka producer
+├── spark/                  # PySpark Structured Streaming
+├── dbt_airlytics/           # dbt Core project (DuckDB target)
+├── dashboard/              # Streamlit UI (provider migration pending)
+├── data/                   # Local Parquet outputs and checkpoints (gitignored)
+├── warehouse/              # Local DuckDB database (gitignored)
+├── docker-compose.yml      # Local Kafka + Kafka UI
+├── Makefile                # Local lifecycle commands
+├── .env.example            # Safe local configuration defaults
+├── infra/                  # Legacy GCP Terraform reference; do not apply
+├── dataflow/               # Legacy Beam implementation; not in active path
+└── dataform/               # Legacy Dataform implementation; not in active path
 ```
+
+## Cost and safety guarantees
+
+- All core compute and storage run locally.
+- Kafka, Spark, DuckDB, dbt Core and Streamlit are used as local open-source tools.
+- No cloud credentials are needed for the active local path.
+- The GCP Terraform and Dataflow/Dataform directories are retained as historical learning material only. **Do not run `terraform apply` or the old cloud deployment workflow.**
+- GitHub Actions is manual-only in this branch; running workflows on GitHub may consume the repository's included Actions allowance.
+- OpenSky is an external data source, not an unlimited SLA-backed feed. Use conservative polling and comply with its current terms.
+
+## Project status
+
+This branch establishes the free local-first architecture and removes automatic cloud deployment. Remaining migration work includes completing the DuckDB-backed dashboard provider, validating the end-to-end Kafka → Spark → Parquet → dbt flow, and retiring obsolete cloud-specific code after tests pass.
+
+See [the local runbook](docs/local-development.md) and [architecture decisions](DECISIONS.md).

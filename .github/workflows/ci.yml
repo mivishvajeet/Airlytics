@@ -1,122 +1,25 @@
-name: CI - Pull Request Verification
+name: Local checks (manual)
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'ingest/**'
-      - 'dataflow/**'
-      - 'spark/**'
-      - 'dbt_airlytics/**'
-      - 'dataform/**'
-      - 'infra/**'
-      - 'sql/**'
-      - 'tests/**'
-      - '.github/workflows/ci.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  # 1. Python Unit Tests for Apache Beam & Ingestion
-  test-python:
-    name: Run Pytest Unit Tests
+  python-checks:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
-
-      - name: Install Test Dependencies
+      - name: Install ingestion and test dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest flake8
           pip install -r ingest/requirements.txt
-          pip install -r dataflow/requirements.txt
-          pip install -r spark/requirements.txt
-
-      - name: Lint with Flake8
-        run: |
-          flake8 ingest/ dataflow/ spark/ --count --select=E9,F63,F7,F82 --show-source --statistics
-
-      - name: Execute Pytest Suite (Beam, Spark, Ingestion, & Schemas)
+          pip install pytest
+      - name: Run ingestion tests
         env:
           PYTHONPATH: .
-        run: |
-          pytest -v ingest/tests/ dataflow/tests/ spark/tests/ tests/
-
-  # 2. Terraform Format & Validation
-  terraform-validate:
-    name: Validate Terraform IaC
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.6.0"
-
-      - name: Check Terraform Formatting
-        run: |
-          terraform fmt -check -recursive infra/
-
-      - name: Validate Dev Infrastructure
-        run: |
-          cd infra/dev
-          terraform init -backend=false
-          terraform validate
-
-      - name: Validate Prod Infrastructure
-        run: |
-          cd infra/prod
-          terraform init -backend=false
-          terraform validate
-
-  # 3. Dataform Compilation Check
-  dataform-compile:
-    name: Compile Dataform DAG
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "18"
-
-      - name: Install Dataform CLI
-        run: |
-          npm install -g @dataform/cli@3.0.0
-
-      - name: Compile Dataform Project
-        run: |
-          cd dataform
-          dataform compile
-
-  # 4. dbt Structure & Model Validation
-  dbt-validate:
-    name: Validate dbt Models & Tests
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Validate dbt Project Structure
-        env:
-          PYTHONPATH: .
-        run: |
-          python -m unittest tests/test_dbt_structure.py
-
+        run: pytest -q ingest/tests

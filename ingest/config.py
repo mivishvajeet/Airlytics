@@ -57,14 +57,14 @@ class IngestionConfig:
         )
     )
 
-    # Streaming Ingestion Sink Configuration ("kafka" or "pubsub")
+    # Local streaming ingestion sink (Kafka only)
     streaming_sink: str = field(
         default_factory=lambda: os.getenv("STREAMING_SINK", "kafka").lower()
     )
 
     # Apache Kafka Configuration
     kafka_bootstrap_servers: str = field(
-        default_factory=lambda: os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+        default_factory=lambda: os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:19092")
     )
     kafka_topic: str = field(
         default_factory=lambda: os.getenv("KAFKA_TOPIC", "raw-flight-pings")
@@ -73,7 +73,7 @@ class IngestionConfig:
         default_factory=lambda: os.getenv("KAFKA_DEADLETTER_TOPIC", "deadletter-pings")
     )
 
-    # Google Cloud Pub/Sub Configuration
+    # Legacy cloud configuration retained for reference; unused by local Kafka path
     gcp_project_id: str = field(
         default_factory=lambda: os.getenv("GCP_PROJECT_ID", "airlytics-dev-123456")
     )
@@ -90,7 +90,7 @@ class IngestionConfig:
         default_factory=lambda: float(os.getenv("BATCH_TIMEOUT_SECONDS", "0.5"))
     )
 
-    # Execution control (for Cloud Run Job: 0 means infinite loop until SIGTERM)
+    # Execution control (0 means run until interrupted)
     run_duration_seconds: int = field(
         default_factory=lambda: int(os.getenv("RUN_DURATION_SECONDS", "0"))
     )
