@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import logging
+import json
 from contextlib import contextmanager
 from pathlib import Path
 import sqlite3
@@ -78,6 +79,16 @@ class SnapshotComparator:
                 CREATE TABLE IF NOT EXISTS comparator_metadata (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS snapshot_event_outbox (
+                    event_id TEXT PRIMARY KEY,
+                    event_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    published_at TEXT
                 )
                 """
             )
@@ -232,6 +243,18 @@ class SnapshotComparator:
                         (misses, icao24),
                     )
 
+            # Persist generated events in the same transaction as state changes.
+            # The runner can retry delivery after Kafka outages or process restarts.
+            for event in events:
+                connection.execute(
+                    """
+                    INSERT OR IGNORE INTO snapshot_event_outbox
+                    (event_id, event_json, created_at)
+                    VALUES (?, ?, ?)
+                    """,
+                    (event["event_id"], json.dumps(event), snapshot_at),
+                )
+
         return SnapshotComparison(
             baseline=False,
             observed_count=len(observed_ids),
@@ -240,3 +263,33 @@ class SnapshotComparator:
             reappeared_count=reappeared,
             events=events,
         )
+
+    def get_pending_events(self, limit: int = 500) -> List[Dict[str, Any]]:
+        """Return unpublished events from the durable local outbox."""
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT event_json FROM snapshot_event_outbox
+                WHERE published_at IS NULL
+                ORDER BY created_at, event_id
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [json.loads(row["event_json"]) for row in rows]
+
+    def mark_events_published(self, event_ids: Iterable[str]) -> None:
+        """Mark events delivered after the publisher confirms the whole batch."""
+        ids = list(event_ids)
+        if not ids:
+            return
+        published_at = datetime.now(timezone.utc).isoformat()
+        with self._connection() as connection:
+            connection.executemany(
+                """
+                UPDATE snapshot_event_outbox
+                SET published_at = ?
+                WHERE event_id = ?
+                """,
+                [(published_at, event_id) for event_id in ids],
+            )
