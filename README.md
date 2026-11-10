@@ -41,6 +41,35 @@ flowchart LR
 
 No BigQuery, Cloud Storage, Dataproc, Dataflow, Pub/Sub, Cloud Run, Artifact Registry, or paid managed services are required.
 
+## Aircraft snapshot comparison
+
+The Python ingestion service maintains a local SQLite state store at
+`data/state/aircraft_state.sqlite` and compares ICAO24 identifiers across
+successful OpenSky snapshots. The first successful snapshot establishes a
+baseline. Later snapshots can emit `newly_observed`, `reappeared`, and
+`no_longer_observed` events.
+
+An aircraft is marked `no_longer_observed` only after it is absent from
+`SNAPSHOT_MISSING_THRESHOLD` consecutive successful snapshots (default: 3).
+HTTP failures and malformed API payloads do not advance this counter. Raw
+ICAO24 values are compared even when a state vector has missing coordinates;
+the existing position-ping validation and dead-letter behavior remain intact.
+
+Observation-state events are published separately to
+`KAFKA_SNAPSHOT_EVENTS_TOPIC` (default: `aircraft-observation-events`).
+They describe changes in what OpenSky observed, not confirmed physical
+geofence entry/exit or airport arrival/departure events.
+
+Relevant settings:
+
+- `SNAPSHOT_STATE_DB`: SQLite state database path.
+- `SNAPSHOT_MISSING_THRESHOLD`: consecutive successful snapshots required
+  before marking an aircraft no longer observed.
+- `KAFKA_SNAPSHOT_EVENTS_TOPIC`: dedicated Kafka topic for comparison events.
+
+The SQLite state file is local runtime data and should be backed up if the
+comparison history must survive machine replacement. Do not commit it.
+
 ## Quickstart
 
 ### Prerequisites
