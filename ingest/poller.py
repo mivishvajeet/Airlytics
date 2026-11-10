@@ -41,7 +41,7 @@ class PollResult:
 
 
 class OpenSkyPoller:
-    """Client for polling live ADS-B state vectors from OpenSky."""
+    """Client for polling live ADS-B state vectors from the OpenSky Network REST API."""
 
     def __init__(self, config: IngestionConfig, session: Optional[Any] = None):
         self.config = config
@@ -49,47 +49,67 @@ class OpenSkyPoller:
         self._consecutive_rate_limits = 0
 
     def _build_params(self) -> Dict[str, Any]:
+        """Construct query parameters, including geographical bounding box if specified."""
         params: Dict[str, Any] = {}
         if self.config.has_bbox:
-            params.update({
-                "lamin": self.config.bbox_lamin,
-                "lomin": self.config.bbox_lomin,
-                "lamax": self.config.bbox_lamax,
-                "lomax": self.config.bbox_lomax,
-            })
+            params["lamin"] = self.config.bbox_lamin
+            params["lomin"] = self.config.bbox_lomin
+            params["lamax"] = self.config.bbox_lamax
+            params["lomax"] = self.config.bbox_lomax
         return params
 
     def _execute_http_get(self, url: str, params: Dict[str, Any], headers: Dict[str, str]) -> Tuple[int, Dict[str, Any]]:
+        """Execute HTTP GET using requests session/mock if available, else urllib."""
         if self.session is not None and hasattr(self.session, "get"):
             auth = None
             if self.config.is_authenticated:
-                auth = HTTPBasicAuth(self.config.opensky_username, self.config.opensky_password) if REQUESTS_AVAILABLE and HTTPBasicAuth else (self.config.opensky_username, self.config.opensky_password)
-            resp = self.session.get(url, params=params, auth=auth, headers=headers, timeout=self.config.request_timeout_seconds)
+                if REQUESTS_AVAILABLE and HTTPBasicAuth:
+                    auth = HTTPBasicAuth(self.config.opensky_username, self.config.opensky_password)
+                else:
+                    auth = (self.config.opensky_username, self.config.opensky_password)
+            resp = self.session.get(
+                url,
+                params=params,
+                auth=auth,
+                headers=headers,
+                timeout=self.config.request_timeout_seconds,
+            )
             data = resp.json() if resp.status_code == 200 else {}
             return resp.status_code, data
 
+        # Fallback to urllib.request
         query_string = urllib.parse.urlencode(params)
         full_url = f"{url}?{query_string}" if query_string else url
         req = urllib.request.Request(full_url, headers=headers, method="GET")
-        if self.config.is_authenticated:
+
+        if self.config.is_authenticated and self.config.opensky_username:
             user_pass = f"{self.config.opensky_username}:{self.config.opensky_password or ''}"
             encoded_auth = base64.b64encode(user_pass.encode("utf-8")).decode("ascii")
             req.add_header("Authorization", f"Basic {encoded_auth}")
 
         try:
             with urllib.request.urlopen(req, timeout=self.config.request_timeout_seconds) as resp:
-                return resp.status, json.loads(resp.read().decode("utf-8"))
+                body = resp.read().decode("utf-8")
+                return resp.status, json.loads(body)
         except urllib.error.HTTPError as http_err:
             return http_err.code, {}
 
     def fetch_states(self) -> Tuple[int, Dict[str, Any], float]:
+        """
+        Execute an HTTP GET request to OpenSky with retry and backoff logic.
+
+        Returns:
+            Tuple of (status_code, json_payload, latency_ms)
+        """
         params = self._build_params()
         headers = {"User-Agent": "Airlytics-Data-Platform/1.0 (Personal/Portfolio Data Engineering Project)"}
 
         for attempt in range(1, self.config.max_retries + 1):
             t_start = time.perf_counter()
             try:
-                status_code, payload = self._execute_http_get(self.config.opensky_url, params, headers)
+                status_code, payload = self._execute_http_get(
+                    self.config.opensky_url, params=params, headers=headers
+                )
                 latency_ms = (time.perf_counter() - t_start) * 1000.0
 
                 if status_code == 200:
@@ -99,30 +119,41 @@ class OpenSkyPoller:
                 if status_code == 429:
                     self._consecutive_rate_limits += 1
                     sleep_time = (self.config.backoff_factor ** attempt) * 2.0 + random.uniform(0.5, 2.0)
-                    logger.warning("OpenSky rate limit encountered (HTTP 429, attempt %d/%d). Cooling down for %.2fs...", attempt, self.config.max_retries, sleep_time)
+                    logger.warning(
+                        "OpenSky rate limit encountered (HTTP 429, attempt %d/%d). Cooling down for %.2fs...",
+                        attempt, self.config.max_retries, sleep_time,
+                    )
                     time.sleep(sleep_time)
                     continue
 
                 if 500 <= status_code < 600:
                     sleep_time = (self.config.backoff_factor ** attempt) + random.uniform(0.1, 0.5)
-                    logger.warning("OpenSky server error (HTTP %d, attempt %d/%d). Retrying in %.2fs...", status_code, attempt, self.config.max_retries, sleep_time)
+                    logger.warning(
+                        "OpenSky server error (HTTP %d, attempt %d/%d). Retrying in %.2fs...",
+                        status_code, attempt, self.config.max_retries, sleep_time,
+                    )
                     time.sleep(sleep_time)
                     continue
 
                 logger.error("Unexpected OpenSky HTTP error %d", status_code)
                 return status_code, {}, latency_ms
 
-            except Exception as err:
+            except Exception as err:  # pylint: disable=broad-except
                 latency_ms = (time.perf_counter() - t_start) * 1000.0
                 sleep_time = (self.config.backoff_factor ** attempt) + random.uniform(0.1, 0.5)
-                logger.warning("Network error querying OpenSky (%s, attempt %d/%d). Retrying in %.2fs...", err, attempt, self.config.max_retries, sleep_time)
+                logger.warning(
+                    "Network error querying OpenSky (%s, attempt %d/%d). Retrying in %.2fs...",
+                    err, attempt, self.config.max_retries, sleep_time,
+                )
                 time.sleep(sleep_time)
 
         logger.error("Exceeded maximum retries (%d) polling OpenSky API.", self.config.max_retries)
         return 503, {}, 0.0
 
     def poll_cycle(self) -> PollResult:
-        """Fetch one snapshot; retain raw ICAO24s separately from valid position pings."""
+        """
+        Perform one successful snapshot fetch, normalization and dead-letter routing.
+        """
         status_code, payload, latency_ms = self.fetch_states()
         now_dt = datetime.now(timezone.utc)
 
@@ -141,8 +172,8 @@ class OpenSkyPoller:
                 status_code=status_code,
             )
 
-        # A successful empty states array (or null states field) is a valid
-        # empty snapshot. A malformed payload must not advance missing counters.
+        # OpenSky can return an empty list (or null) for a valid empty snapshot.
+        # Missing or malformed states data must not advance disappearance counters.
         if not isinstance(payload, dict) or "states" not in payload:
             return PollResult(
                 response_time=int(now_dt.timestamp()),
@@ -175,6 +206,9 @@ class OpenSkyPoller:
                 status_code=502,
             )
         states = states_value or []
+
+        # Capture ICAO24 before coordinate validation: a state vector with missing
+        # coordinates is still evidence that OpenSky observed that transponder.
         observed_icao24s = [
             str(vector[0]).strip().lower()
             for vector in states
@@ -186,6 +220,7 @@ class OpenSkyPoller:
 
         valid_pings: List[NormalizedFlightPing] = []
         deadletter_records: List[Dict[str, Any]] = []
+
         for vector in states:
             ping, err = parse_state_vector(vector, response_time=resp_time, ingest_dt=now_dt)
             if ping is not None:
