@@ -33,6 +33,7 @@ class PollResult:
 
     response_time: int
     total_states_received: int
+    observed_icao24s: List[str]
     valid_pings: List[NormalizedFlightPing]
     deadletter_records: List[Dict[str, Any]]
     api_latency_ms: float
@@ -120,9 +121,7 @@ class OpenSkyPoller:
                     sleep_time = (self.config.backoff_factor ** attempt) * 2.0 + random.uniform(0.5, 2.0)
                     logger.warning(
                         "OpenSky rate limit encountered (HTTP 429, attempt %d/%d). Cooling down for %.2fs...",
-                        attempt,
-                        self.config.max_retries,
-                        sleep_time,
+                        attempt, self.config.max_retries, sleep_time,
                     )
                     time.sleep(sleep_time)
                     continue
@@ -131,10 +130,7 @@ class OpenSkyPoller:
                     sleep_time = (self.config.backoff_factor ** attempt) + random.uniform(0.1, 0.5)
                     logger.warning(
                         "OpenSky server error (HTTP %d, attempt %d/%d). Retrying in %.2fs...",
-                        status_code,
-                        attempt,
-                        self.config.max_retries,
-                        sleep_time,
+                        status_code, attempt, self.config.max_retries, sleep_time,
                     )
                     time.sleep(sleep_time)
                     continue
@@ -147,10 +143,7 @@ class OpenSkyPoller:
                 sleep_time = (self.config.backoff_factor ** attempt) + random.uniform(0.1, 0.5)
                 logger.warning(
                     "Network error querying OpenSky (%s, attempt %d/%d). Retrying in %.2fs...",
-                    err,
-                    attempt,
-                    self.config.max_retries,
-                    sleep_time,
+                    err, attempt, self.config.max_retries, sleep_time,
                 )
                 time.sleep(sleep_time)
 
@@ -159,15 +152,16 @@ class OpenSkyPoller:
 
     def poll_cycle(self) -> PollResult:
         """
-        Perform a full poll iteration: fetch states and parse into normalized pings and dead-letter records.
+        Perform one successful snapshot fetch, normalization and dead-letter routing.
         """
         status_code, payload, latency_ms = self.fetch_states()
         now_dt = datetime.now(timezone.utc)
 
-        if status_code != 200 or not payload:
+        if status_code != 200:
             return PollResult(
                 response_time=int(now_dt.timestamp()),
                 total_states_received=0,
+                observed_icao24s=[],
                 valid_pings=[],
                 deadletter_records=[{
                     "reason": "http_fetch_failure",
@@ -178,8 +172,51 @@ class OpenSkyPoller:
                 status_code=status_code,
             )
 
+        # OpenSky can return an empty list (or null) for a valid empty snapshot.
+        # Missing or malformed states data must not advance disappearance counters.
+        if not isinstance(payload, dict) or "states" not in payload:
+            return PollResult(
+                response_time=int(now_dt.timestamp()),
+                total_states_received=0,
+                observed_icao24s=[],
+                valid_pings=[],
+                deadletter_records=[{
+                    "reason": "invalid_api_payload",
+                    "status_code": status_code,
+                    "timestamp": now_dt.isoformat(),
+                }],
+                api_latency_ms=latency_ms,
+                status_code=502,
+            )
+
         resp_time = payload.get("time", int(now_dt.timestamp()))
-        states = payload.get("states") or []
+        states_value = payload.get("states")
+        if states_value is not None and not isinstance(states_value, list):
+            return PollResult(
+                response_time=int(now_dt.timestamp()),
+                total_states_received=0,
+                observed_icao24s=[],
+                valid_pings=[],
+                deadletter_records=[{
+                    "reason": "invalid_states_shape",
+                    "status_code": status_code,
+                    "timestamp": now_dt.isoformat(),
+                }],
+                api_latency_ms=latency_ms,
+                status_code=502,
+            )
+        states = states_value or []
+
+        # Capture ICAO24 before coordinate validation: a state vector with missing
+        # coordinates is still evidence that OpenSky observed that transponder.
+        observed_icao24s = [
+            str(vector[0]).strip().lower()
+            for vector in states
+            if isinstance(vector, (list, tuple))
+            and len(vector) > 0
+            and isinstance(vector[0], str)
+            and vector[0].strip()
+        ]
 
         valid_pings: List[NormalizedFlightPing] = []
         deadletter_records: List[Dict[str, Any]] = []
@@ -194,6 +231,7 @@ class OpenSkyPoller:
         return PollResult(
             response_time=resp_time,
             total_states_received=len(states),
+            observed_icao24s=observed_icao24s,
             valid_pings=valid_pings,
             deadletter_records=deadletter_records,
             api_latency_ms=latency_ms,

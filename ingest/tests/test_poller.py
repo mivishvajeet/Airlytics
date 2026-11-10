@@ -63,11 +63,41 @@ class TestOpenSkyPoller(unittest.TestCase):
 
         self.assertEqual(result.status_code, 200)
         self.assertEqual(result.total_states_received, 2)
+        self.assertEqual(result.observed_icao24s, ["484163", "3c4a22"])
         self.assertEqual(len(result.valid_pings), 1)
         self.assertEqual(result.valid_pings[0].icao24, "484163")
         self.assertEqual(len(result.deadletter_records), 1)
         self.assertEqual(result.deadletter_records[0]["reason"], "missing_coordinates")
         mock_sleep.assert_not_called()
+
+    def test_successful_empty_snapshot_is_not_a_fetch_failure(self):
+        mock_session = MagicMock()
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"time": 1700000000, "states": []}
+        mock_session.get.return_value = mock_response
+
+        poller = OpenSkyPoller(self.config, session=mock_session)
+        result = poller.poll_cycle()
+
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual(result.total_states_received, 0)
+        self.assertEqual(result.observed_icao24s, [])
+        self.assertEqual(result.deadletter_records, [])
+
+    def test_malformed_success_payload_is_not_treated_as_empty_snapshot(self):
+        mock_session = MagicMock()
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"time": 1700000000}
+        mock_session.get.return_value = mock_response
+
+        poller = OpenSkyPoller(self.config, session=mock_session)
+        result = poller.poll_cycle()
+
+        self.assertEqual(result.status_code, 502)
+        self.assertEqual(result.observed_icao24s, [])
+        self.assertEqual(result.deadletter_records[0]["reason"], "invalid_api_payload")
 
     @patch("time.sleep")
     def test_rate_limit_backoff_and_retry(self, mock_sleep):

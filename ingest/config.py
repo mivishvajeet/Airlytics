@@ -72,6 +72,21 @@ class IngestionConfig:
     kafka_deadletter_topic: str = field(
         default_factory=lambda: os.getenv("KAFKA_DEADLETTER_TOPIC", "deadletter-pings")
     )
+    kafka_snapshot_events_topic: str = field(
+        default_factory=lambda: os.getenv(
+            "KAFKA_SNAPSHOT_EVENTS_TOPIC", "aircraft-observation-events"
+        )
+    )
+
+    # Persistent local state for snapshot comparison.
+    snapshot_state_db: str = field(
+        default_factory=lambda: os.getenv(
+            "SNAPSHOT_STATE_DB", "data/state/aircraft_state.sqlite"
+        )
+    )
+    snapshot_missing_threshold: int = field(
+        default_factory=lambda: int(os.getenv("SNAPSHOT_MISSING_THRESHOLD", "3"))
+    )
 
     # Legacy cloud configuration retained for reference; unused by local Kafka path
     gcp_project_id: str = field(
