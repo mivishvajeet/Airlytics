@@ -99,6 +99,38 @@ class KafkaPingPublisher:
         self.published_count += success_count
         return success_count
 
+    def publish_snapshot_events(self, events: List[Dict[str, Any]]) -> int:
+        """Publish inferred aircraft observation-state events to a separate topic."""
+        if not events:
+            return 0
+
+        success_count = 0
+        for event in events:
+            if self.dry_run or self.producer is None:
+                success_count += 1
+                continue
+            try:
+                key = str(event["icao24"])
+                if hasattr(self.producer, "send"):
+                    self.producer.send(
+                        self.config.kafka_snapshot_events_topic,
+                        key=key,
+                        value=event,
+                    )
+                elif hasattr(self.producer, "produce"):
+                    self.producer.produce(
+                        self.config.kafka_snapshot_events_topic,
+                        key=key.encode("utf-8"),
+                        value=json.dumps(event, default=str).encode("utf-8"),
+                    )
+                success_count += 1
+            except Exception as exc:
+                logger.error("Failed to publish snapshot event %s: %s", event.get("event_id"), exc)
+
+        if self.producer and hasattr(self.producer, "flush"):
+            self.producer.flush()
+        return success_count
+
     def publish_deadletter(self, deadletter_records: List[Dict[str, Any]]) -> int:
         """Publish malformed or unpositioned records to the dead-letter Kafka topic."""
         if not deadletter_records:
