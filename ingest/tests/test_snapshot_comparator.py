@@ -65,6 +65,26 @@ class TestSnapshotComparator(unittest.TestCase):
         self.assertEqual(result.observed_count, 2)
         self.assertEqual(result.newly_observed_count, 1)
 
+    def test_events_remain_pending_until_marked_published(self):
+        self.comparator.process_snapshot(["abc123"], 1700000000)
+        self.comparator.process_snapshot(["abc123", "def456"], 1700000060)
+
+        pending = self.comparator.get_pending_events()
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0]["event_type"], "newly_observed")
+
+        self.comparator.mark_events_published([pending[0]["event_id"]])
+        self.assertEqual(self.comparator.get_pending_events(), [])
+
+    def test_outbox_survives_comparator_restart(self):
+        self.comparator.process_snapshot(["abc123"], 1700000000)
+        self.comparator.process_snapshot(["abc123", "def456"], 1700000060)
+        self.comparator = SnapshotComparator(self.db_path, missing_threshold=3)
+
+        pending = self.comparator.get_pending_events()
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0]["icao24"], "def456")
+
     def test_invalid_threshold_is_rejected(self):
         with self.assertRaises(ValueError):
             SnapshotComparator(self.db_path, missing_threshold=0)
