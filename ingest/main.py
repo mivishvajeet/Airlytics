@@ -74,8 +74,6 @@ class IngestionRunner:
                     poll_result.observed_icao24s,
                     poll_result.response_time,
                 )
-                if comparison.events:
-                    self.publisher.publish_snapshot_events(comparison.events)
                 logger.info(
                     "Snapshot comparison: baseline=%s observed=%d new=%d disappeared=%d reappeared=%d events=%d",
                     comparison.baseline,
@@ -85,6 +83,21 @@ class IngestionRunner:
                     comparison.reappeared_count,
                     len(comparison.events),
                 )
+
+            # Drain the durable outbox on every cycle, including cycles where
+            # the OpenSky request failed. Mark delivered only after a real
+            # Kafka producer confirms the entire batch; retries are at-least-once.
+            pending_events = self.snapshot_comparator.get_pending_events()
+            if pending_events:
+                delivered = self.publisher.publish_snapshot_events(pending_events)
+                if (
+                    self.publisher.producer is not None
+                    and not self.dry_run
+                    and delivered == len(pending_events)
+                ):
+                    self.snapshot_comparator.mark_events_published(
+                        event["event_id"] for event in pending_events
+                    )
 
             if poll_result.valid_pings:
                 published = self.publisher.publish_pings(poll_result.valid_pings)
