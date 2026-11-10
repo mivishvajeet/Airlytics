@@ -85,6 +85,20 @@ class TestOpenSkyPoller(unittest.TestCase):
         self.assertEqual(result.observed_icao24s, [])
         self.assertEqual(result.deadletter_records, [])
 
+    def test_malformed_success_payload_is_not_treated_as_empty_snapshot(self):
+        mock_session = MagicMock()
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"time": 1700000000}
+        mock_session.get.return_value = mock_response
+
+        poller = OpenSkyPoller(self.config, session=mock_session)
+        result = poller.poll_cycle()
+
+        self.assertEqual(result.status_code, 502)
+        self.assertEqual(result.observed_icao24s, [])
+        self.assertEqual(result.deadletter_records[0]["reason"], "invalid_api_payload")
+
     @patch("time.sleep")
     def test_rate_limit_backoff_and_retry(self, mock_sleep):
         """When receiving HTTP 429, poller should back off and retry until success."""
