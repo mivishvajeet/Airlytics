@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import logging
+from contextlib import contextmanager
 from pathlib import Path
 import sqlite3
 from typing import Any, Dict, Iterable, List
@@ -50,8 +51,17 @@ class SnapshotComparator:
         connection.row_factory = sqlite3.Row
         return connection
 
+    @contextmanager
+    def _connection(self):
+        connection = self._connect()
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
+
     def _initialize_database(self) -> None:
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS aircraft_observation_state (
@@ -110,7 +120,7 @@ class SnapshotComparator:
         no_longer_observed = 0
         reappeared = 0
 
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
             initialized = connection.execute(
                 "SELECT value FROM comparator_metadata WHERE key = 'initialized'"
