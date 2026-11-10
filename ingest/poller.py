@@ -141,10 +141,40 @@ class OpenSkyPoller:
                 status_code=status_code,
             )
 
-        # A successful empty response is a valid empty snapshot. Never confuse
-        # it with an HTTP/network failure.
+        # A successful empty states array (or null states field) is a valid
+        # empty snapshot. A malformed payload must not advance missing counters.
+        if not isinstance(payload, dict) or "states" not in payload:
+            return PollResult(
+                response_time=int(now_dt.timestamp()),
+                total_states_received=0,
+                observed_icao24s=[],
+                valid_pings=[],
+                deadletter_records=[{
+                    "reason": "invalid_api_payload",
+                    "status_code": status_code,
+                    "timestamp": now_dt.isoformat(),
+                }],
+                api_latency_ms=latency_ms,
+                status_code=502,
+            )
+
         resp_time = payload.get("time", int(now_dt.timestamp()))
-        states = payload.get("states") or []
+        states_value = payload.get("states")
+        if states_value is not None and not isinstance(states_value, list):
+            return PollResult(
+                response_time=int(now_dt.timestamp()),
+                total_states_received=0,
+                observed_icao24s=[],
+                valid_pings=[],
+                deadletter_records=[{
+                    "reason": "invalid_states_shape",
+                    "status_code": status_code,
+                    "timestamp": now_dt.isoformat(),
+                }],
+                api_latency_ms=latency_ms,
+                status_code=502,
+            )
+        states = states_value or []
         observed_icao24s = [
             str(vector[0]).strip().lower()
             for vector in states
