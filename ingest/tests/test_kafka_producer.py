@@ -64,6 +64,25 @@ class TestKafkaPingPublisher(unittest.TestCase):
         self.assertEqual(kwargs["value"]["latitude"], 51.47)
         mock_producer.flush.assert_called_once()
 
+    def test_publish_snapshot_events_to_dedicated_topic(self):
+        mock_producer = MagicMock()
+        publisher = KafkaPingPublisher(self.config, producer_client=mock_producer)
+        event = {
+            "event_id": "event-1",
+            "event_type": "newly_observed",
+            "icao24": "40001f",
+        }
+
+        count = publisher.publish_snapshot_events([event])
+
+        self.assertEqual(count, 1)
+        mock_producer.send.assert_called_once_with(
+            "aircraft-observation-events",
+            key="40001f",
+            value=event,
+        )
+        mock_producer.flush.assert_called_once()
+
     def test_publish_deadletter(self):
         """Malformed records must be routed to the deadletter Kafka topic."""
         mock_producer = MagicMock()
