@@ -10,6 +10,7 @@ from typing import Any
 from ingest.config import IngestionConfig
 from ingest.kafka_producer import KafkaPingPublisher
 from ingest.poller import OpenSkyPoller
+from ingest.snapshot_comparator import SnapshotComparator
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,6 +26,10 @@ class IngestionRunner:
         self.config = config
         self.dry_run = dry_run
         self.poller = OpenSkyPoller(config)
+        self.snapshot_comparator = SnapshotComparator(
+            config.snapshot_state_db,
+            missing_threshold=config.snapshot_missing_threshold,
+        )
         if config.streaming_sink == "kafka":
             self.publisher = KafkaPingPublisher(config, dry_run=dry_run)
         else:
@@ -61,6 +66,25 @@ class IngestionRunner:
             cycle_count += 1
 
             poll_result = self.poller.poll_cycle()
+
+            # Compare only successful API snapshots. Failed requests must not
+            # increment missing counters or create false disappearance events.
+            if poll_result.status_code == 200:
+                comparison = self.snapshot_comparator.process_snapshot(
+                    poll_result.observed_icao24s,
+                    poll_result.response_time,
+                )
+                if comparison.events:
+                    self.publisher.publish_snapshot_events(comparison.events)
+                logger.info(
+                    "Snapshot comparison: baseline=%s observed=%d new=%d disappeared=%d reappeared=%d events=%d",
+                    comparison.baseline,
+                    comparison.observed_count,
+                    comparison.newly_observed_count,
+                    comparison.no_longer_observed_count,
+                    comparison.reappeared_count,
+                    len(comparison.events),
+                )
 
             if poll_result.valid_pings:
                 published = self.publisher.publish_pings(poll_result.valid_pings)
